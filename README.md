@@ -1,105 +1,156 @@
 # 🚀 SaaS Multi-Tenant Onboarding Service
 
-Servicio de onboarding para la plataforma SaaS multi-tenant que maneja el proceso de incorporación de nuevos tenants.
+Servicio de onboarding simplificado para la plataforma SaaS multi-tenant que maneja el proceso de incorporación de nuevos tenants en **5 pasos optimizados**.
 
 ## 🎯 Descripción
 
-Este servicio gestiona el proceso completo de onboarding para nuevos tenants, incluyendo:
+Este servicio gestiona el **Onboarding Simplificado** dividido en dos fases:
 
-- **Configuración inicial del tenant**: Setup básico y configuración de preferencias
-- **Tipos de negocio**: Gestión de categorías de negocio y mapeo de atributos
-- **Pasos de onboarding**: Flujo guiado para la configuración del tenant
-- **Validaciones**: Verificación de completitud del proceso de onboarding
+### 📱 **FASE 1: Onboarding Inicial (3-5 min)**
+Registro rápido para generar engagement inmediato:
+1. **🏠 Bienvenida** - Landing con expectativas
+2. **👤 Registro de Usuario** - Creación de tenant + usuario TENANT_ADMIN  
+3. **✉️ Verificación Email** - Código de 6 dígitos
+4. **🏪 Configuración Tienda** - Negocio + categorías (sincronizado con PIM)
+5. **🎉 Finalización** - Redirección al backoffice
 
-## 🏗️ Arquitectura
+### ⚙️ **FASE 2: Configuración Completa (Backoffice)**
+Setup detallado paso a paso con gamificación (futuro).
 
-Construido siguiendo los principios de **Arquitectura Hexagonal**:
+**Filosofía**: Conseguir el registro rápido, luego guiar la configuración completa.
+
+## 🏗️ Arquitectura Hexagonal
 
 ```
 src/onboarding/
 ├── domain/
-│   ├── entity/           # Entidades de negocio
-│   ├── port/            # Interfaces (contratos)
-│   └── exception/       # Excepciones del dominio
+│   ├── entity/
+│   │   ├── onboarding_process.go        # 🎯 Proceso principal de onboarding
+│   │   └── step_definition.go           # 📋 Definiciones de pasos
+│   └── port/
+│       ├── onboarding_repository.go     # 🗄️ Puerto de persistencia
+│       ├── iam_client.go                # 🔐 Puerto cliente IAM
+│       └── pim_client.go                # 📦 Puerto cliente PIM
 ├── application/
-│   ├── usecase/         # Casos de uso
-│   ├── request/         # DTOs de entrada
-│   └── response/        # DTOs de salida
+│   ├── request/
+│   │   ├── register_user_request.go     # 📝 DTO registro usuario
+│   │   └── setup_store_request.go       # 🏪 DTO configuración tienda
+│   ├── response/
+│   │   ├── register_user_response.go    # ✅ Respuesta registro
+│   │   └── setup_store_response.go      # 🏪 Respuesta configuración
+│   └── usecase/
+│       ├── register_user_usecase.go     # 🧑‍💼 Caso uso registro completo
+│       └── setup_store_usecase.go       # 🏪 Caso uso configuración
 └── infrastructure/
-    ├── persistence/     # Repositorios PostgreSQL
-    ├── controller/      # Controladores HTTP
-    └── config/         # Configuración del módulo
+    ├── client/
+    │   ├── iam_client.go                # 🌐 Cliente HTTP para IAM Service
+    │   └── pim_client.go                # 🌐 Cliente HTTP para PIM Service
+    ├── persistence/
+    │   └── postgres_onboarding_repository.go # 🐘 Repositorio PostgreSQL
+    ├── controller/
+    │   └── onboarding_controller.go     # 🎮 Controlador REST
+    └── config/
+        └── setup.go                     # ⚙️ Configuración del módulo
 ```
 
-## 📦 Entidades
+## 📊 Base de Datos
 
-### TenantOnboarding
-- Gestión del proceso de onboarding por tenant
-- Estados: `pending`, `in_progress`, `completed`, `cancelled`
-- Tracking de progreso y metadatos
+### Tablas Principales
 
-### BusinessType
-- Tipos de negocio disponibles (e-commerce, marketplace, B2B, etc.)
-- Configuraciones específicas por tipo
-- Mapeo de atributos y categorías
+```sql
+-- Master data: Definiciones de pasos
+onboarding_step_definitions (
+    id, step_number, step_name, step_title, description,
+    has_ui, requires_user_input, can_be_skipped, is_active
+)
 
-### OnboardingStep
-- Pasos individuales del proceso de onboarding
-- Dependencias entre pasos
-- Validaciones y requisitos
+-- Procesos de onboarding por tenant
+onboarding_processes (
+    id, tenant_id, user_id, current_step_number, is_completed,
+    company_name, business_type, store_size,
+    steps_completed, steps_pending, steps_skipped,
+    started_at, completed_at
+)
+```
 
 ## 🌐 API Endpoints
 
-### TenantOnboarding
-```
-GET    /api/v1/onboarding               # Listar procesos de onboarding
-GET    /api/v1/onboarding/{id}          # Obtener proceso específico
-POST   /api/v1/onboarding               # Iniciar nuevo onboarding
-PUT    /api/v1/onboarding/{id}          # Actualizar proceso
-DELETE /api/v1/onboarding/{id}          # Cancelar proceso
+### 🎯 Flujo Principal de Onboarding
+```http
+POST   /api/v1/onboarding/register-user     # 👤 Registro usuario + tenant
+POST   /api/v1/onboarding/setup-store       # 🏪 Configuración tienda
+POST   /api/v1/onboarding/complete          # 🎉 Completar onboarding
 ```
 
-### BusinessType
-```
-GET    /api/v1/business-types           # Listar tipos de negocio
-GET    /api/v1/business-types/{id}      # Obtener tipo específico
-POST   /api/v1/business-types           # Crear nuevo tipo
-PUT    /api/v1/business-types/{id}      # Actualizar tipo
+### 📊 Información y Configuración
+```http
+GET    /api/v1/onboarding/business-types    # 📋 Tipos de negocio (desde PIM)
+GET    /api/v1/onboarding/categories        # 🏷️ Categorías por tipo de negocio
+GET    /api/v1/onboarding/steps             # 📝 Definiciones de pasos
 ```
 
-### OnboardingStep
+### 📈 Estado y Seguimiento
+```http
+GET    /api/v1/onboarding/process/{id}      # 📊 Estado del proceso
 ```
-GET    /api/v1/onboarding-steps         # Listar pasos de onboarding
-GET    /api/v1/onboarding-steps/{id}    # Obtener paso específico
-POST   /api/v1/onboarding-steps         # Crear nuevo paso
-PUT    /api/v1/onboarding-steps/{id}    # Actualizar paso
-```
+
+## 🔗 Integraciones
+
+### 🔐 IAM Service (Puerto 8080)
+- **Crear Tenant** con información del negocio
+- **Crear Usuario** con rol `TENANT_ADMIN` automático
+- **Actualizar Owner** del tenant creado
+- **Rollback automático** en caso de errores
+
+### 📦 PIM Service (Puerto 8090)  
+- **Business Types dinámicos** desde `/api/v1/quickstart/business-types`
+- **Categorías por negocio** desde `/api/v1/quickstart/categories`
+- **Validación en tiempo real** contra datos PIM
+- **Templates de quickstart** preparados para backoffice
+
+### 🗃️ Mapeo Business Types
+
+| UI Onboarding | PIM business_type | Nombre PIM |
+|---------------|------------------|------------|
+| Pinturería | `home-construction` | Hogar y Construcción |
+| Ferretería | `home-construction` | Hogar y Construcción |
+| Ropa y accesorios | `fashion` | Moda y Vestimenta |
+| Electrónicos | `electronics` | Electrónicos y Tecnología |
+| Repuestos automotriz | `automotive` | Automotriz y Repuestos |
+| ... | ... | ... |
+| Polirubro | `polirubro` | Polirubro |
 
 ## 🔧 Configuración
 
-### Variables de Entorno
+### 📄 Variables de Entorno (.env)
 
 ```bash
-# Base de datos
-DB_HOST=postgres
+# Server Configuration
+PORT=8110
+
+# Database Configuration  
+DB_HOST=localhost
 DB_PORT=5432
 DB_USER=postgres
 DB_PASSWORD=postgres
 DB_NAME=onboarding_db
 DB_SSLMODE=disable
 
-# Servidor
-PORT=8080
+# External Services
+IAM_SERVICE_URL=http://localhost:8080
+PIM_SERVICE_URL=http://localhost:8090
 
-# Métricas
+# IAM Authentication (for super admin operations)
+IAM_SUPER_ADMIN_TOKEN=
+
+# Monitoring
 PROMETHEUS_ENABLED=true
-PROMETHEUS_PORT=2115
 
-# Modo
-GIN_MODE=debug
+# Environment
+ENVIRONMENT=development
 ```
 
-### Docker
+### 🐳 Docker
 
 ```bash
 # Desarrollo
@@ -109,31 +160,36 @@ docker-compose up -d
 docker build -t saas-mt-onboarding-service .
 
 # Ejecución
-docker run -p 8110:8080 saas-mt-onboarding-service
+docker run -p 8110:8110 saas-mt-onboarding-service
 ```
 
 ## 🚀 Desarrollo
 
-### Prerequisitos
+### ✅ Prerequisitos
 
 - Go 1.22+
 - PostgreSQL 15+
-- Docker (opcional)
+- IAM Service (puerto 8080)
+- PIM Service (puerto 8090)
 
-### Instalación
+### 📦 Instalación
 
 ```bash
-# Clonar dependencias
-go mod download
+# 1. Instalar dependencias
+go mod tidy
 
-# Ejecutar migraciones
-./scripts/run-migrations.sh
+# 2. Configurar variables de entorno
+cp .env.example .env
+# Editar .env con tus configuraciones
 
-# Ejecutar el servicio
+# 3. Crear base de datos
+createdb onboarding_db
+
+# 4. Ejecutar el servicio
 go run src/main.go
 ```
 
-### Testing
+### 🧪 Testing
 
 ```bash
 # Tests unitarios
@@ -142,49 +198,90 @@ go test ./...
 # Tests con cobertura
 go test -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out
+
+# Test de integración
+./scripts/test-integration.sh
 ```
 
 ## 📊 Métricas
 
-El servicio expone métricas en `/metrics` (puerto 2115) para Prometheus:
+El servicio expone métricas en `/metrics` para Prometheus:
 
-- Requests HTTP por endpoint
-- Latencia de respuesta
-- Errores por tipo
-- Conexiones de base de datos
+- ✅ Requests HTTP por endpoint  
+- ⏱️ Latencia de respuesta
+- ❌ Errores por tipo
+- 🗄️ Conexiones de base de datos
+- 📈 Progreso de onboarding por paso
 
-## 🔄 Integración
+## 🔄 Flujo Completo
 
-### Con API Gateway (Kong)
-
-```yaml
-services:
-  - name: onboarding-service
-    url: http://onboarding-service:8080
-    routes:
-      - name: onboarding-route
-        paths:
-          - /onboarding/api/v1
+### 1. 👤 Registro de Usuario
+```json
+POST /api/v1/onboarding/register-user
+{
+  "name": "Juan Pérez",
+  "email": "juan@empresa.com", 
+  "password": "password123",
+  "confirm_password": "password123"
+}
 ```
+**✅ Resultado**: Tenant creado + Usuario TENANT_ADMIN + Proceso iniciado
 
-### Con otros servicios
+### 2. 🏪 Configuración de Tienda  
+```json
+POST /api/v1/onboarding/setup-store
+{
+  "process_id": "uuid-del-proceso",
+  "store_name": "Ferretería El Martillo",
+  "business_type": "home-construction",
+  "store_size": "pyme", 
+  "selected_categories": ["herramientas", "pinturas", "electricidad"]
+}
+```
+**✅ Resultado**: Tenant actualizado + Configuración PIM preparada
 
-- **IAM Service**: Validación de tenants y usuarios
-- **PIM Service**: Configuración inicial de productos y categorías
+### 3. 🎉 Completar Onboarding
+```json
+POST /api/v1/onboarding/complete
+{
+  "process_id": "uuid-del-proceso"
+}
+```
+**✅ Resultado**: Proceso marcado como completado + Redirección a backoffice
 
-## 📝 TODO
+## 📈 Objetivos de Performance
 
-- [ ] Implementar casos de uso específicos
-- [ ] Agregar validaciones de negocio
-- [ ] Crear migraciones de base de datos
-- [ ] Implementar tests unitarios
+- ⏱️ **Tiempo total**: < 10 minutos
+- 📈 **Tasa de completación**: > 85%  
+- 🎯 **Abandono por paso**: < 15%
+- ✅ **Time-to-first-product**: < 30 minutos
+
+## 🔮 Roadmap
+
+### ✅ **Completado**
+- [x] Arquitectura hexagonal implementada
+- [x] Integración completa con IAM Service
+- [x] Integración completa con PIM Service  
+- [x] Flujo de 5 pasos optimizado
+- [x] Persistencia PostgreSQL con tracking de estado
+- [x] Validaciones de negocio y rollback automático
+- [x] API REST completa con documentación
+
+### 🚧 **En Desarrollo**
+- [ ] Tests unitarios y de integración
 - [ ] Documentación API con Swagger
-- [ ] Métricas personalizadas
+- [ ] Migraciones de base de datos
 - [ ] Health checks avanzados
+
+### 🔮 **Futuro (Fase 2)**
+- [ ] Verificación de email real con SendGrid
+- [ ] Configuración avanzada en backoffice
+- [ ] Gamificación del proceso
+- [ ] Analytics y métricas de conversión
+- [ ] Onboarding personalizado por business type
 
 ---
 
-**Puerto**: `8110` (HTTP) | `2115` (Métricas)  
-**Base de datos**: `onboarding_db`  
-**Tecnología**: Go + Gin + PostgreSQL  
-**Arquitectura**: Hexagonal 
+**🌐 Puerto**: `8110` (HTTP) | **🗄️ Base de datos**: `onboarding_db`  
+**🛠️ Tecnología**: Go + Gin + PostgreSQL | **🏗️ Arquitectura**: Hexagonal  
+**🔗 Dependencias**: IAM Service (8080) + PIM Service (8090) 

@@ -69,7 +69,7 @@ func main() {
 	onboardingConfig.SetupOnboardingModule(apiV1, db)
 
 	// Iniciar el servidor
-	port := getEnv("PORT", "8080")
+	port := getEnv("PORT", "8110")
 	log.Printf("Starting Onboarding server on port %s", port)
 	if err := router.Run(":" + port); err != nil {
 		log.Fatalf("Error starting server: %v", err)
