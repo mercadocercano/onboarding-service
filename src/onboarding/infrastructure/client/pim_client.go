@@ -55,15 +55,13 @@ func (c *PIMHTTPClient) GetBusinessTypes() ([]*port.BusinessType, error) {
 		return nil, fmt.Errorf("PIM service error: %s (status: %d)", string(body), resp.StatusCode)
 	}
 
-	var result struct {
-		BusinessTypes []*port.BusinessType `json:"business_types"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
+	var businessTypes []*port.BusinessType
+	if err := json.Unmarshal(body, &businessTypes); err != nil {
 		return nil, fmt.Errorf("error unmarshaling response: %w", err)
 	}
 
-	log.Printf("Retrieved %d business types from PIM service", len(result.BusinessTypes))
-	return result.BusinessTypes, nil
+	log.Printf("Retrieved %d business types from PIM service", len(businessTypes))
+	return businessTypes, nil
 }
 
 // GetBusinessType obtiene un tipo de negocio específico
@@ -102,7 +100,7 @@ func (c *PIMHTTPClient) GetBusinessType(businessTypeID string) (*port.BusinessTy
 
 // GetCategoriesByBusinessType obtiene categorías filtradas por tipo de negocio
 func (c *PIMHTTPClient) GetCategoriesByBusinessType(businessType string) ([]*port.Category, error) {
-	url := fmt.Sprintf("%s/api/v1/quickstart/categories?business_type=%s", c.baseURL, businessType)
+	url := fmt.Sprintf("%s/api/v1/quickstart/categories/%s", c.baseURL, businessType)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {

@@ -13,24 +13,36 @@ import (
 
 // OnboardingController maneja las operaciones HTTP del onboarding
 type OnboardingController struct {
-	registerUserUseCase *usecase.RegisterUserUseCase
-	setupStoreUseCase   *usecase.SetupStoreUseCase
-	pimClient           port.PIMClient
-	onboardingRepo      port.OnboardingRepository
+	startOnboardingUseCase    *usecase.StartOnboardingUseCase
+	registerUserUseCase       *usecase.RegisterUserUseCase
+	verifyEmailUseCase        *usecase.VerifyEmailUseCase
+	resendVerificationUseCase *usecase.ResendVerificationUseCase
+	setupStoreUseCase         *usecase.SetupStoreUseCase
+	getProcessStatusUseCase   *usecase.GetProcessStatusUseCase
+	pimClient                 port.PIMClient
+	onboardingRepo            port.OnboardingRepository
 }
 
 // NewOnboardingController crea una nueva instancia del controlador
 func NewOnboardingController(
+	startOnboardingUseCase *usecase.StartOnboardingUseCase,
 	registerUserUseCase *usecase.RegisterUserUseCase,
+	verifyEmailUseCase *usecase.VerifyEmailUseCase,
+	resendVerificationUseCase *usecase.ResendVerificationUseCase,
 	setupStoreUseCase *usecase.SetupStoreUseCase,
+	getProcessStatusUseCase *usecase.GetProcessStatusUseCase,
 	pimClient port.PIMClient,
 	onboardingRepo port.OnboardingRepository,
 ) *OnboardingController {
 	return &OnboardingController{
-		registerUserUseCase: registerUserUseCase,
-		setupStoreUseCase:   setupStoreUseCase,
-		pimClient:           pimClient,
-		onboardingRepo:      onboardingRepo,
+		startOnboardingUseCase:    startOnboardingUseCase,
+		registerUserUseCase:       registerUserUseCase,
+		verifyEmailUseCase:        verifyEmailUseCase,
+		resendVerificationUseCase: resendVerificationUseCase,
+		setupStoreUseCase:         setupStoreUseCase,
+		getProcessStatusUseCase:   getProcessStatusUseCase,
+		pimClient:                 pimClient,
+		onboardingRepo:            onboardingRepo,
 	}
 }
 
@@ -161,13 +173,23 @@ func (c *OnboardingController) GetProcessStatus(ctx *gin.Context) {
 		return
 	}
 
-	// TODO: Implementar usecase para obtener estado del proceso
-	ctx.JSON(http.StatusOK, gin.H{
-		"success":    true,
-		"message":    "Estado del proceso obtenido exitosamente",
-		"process_id": processID,
-		"status":     "in_progress", // Placeholder
-	})
+	response, err := c.getProcessStatusUseCase.Execute(processID)
+	if err != nil {
+		log.Printf("Error in GetProcessStatus usecase: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Error interno del servidor",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	statusCode := http.StatusOK
+	if !response.Success {
+		statusCode = http.StatusNotFound
+	}
+
+	ctx.JSON(statusCode, response)
 }
 
 // CompleteOnboarding marca el onboarding como completado (POST /api/v1/onboarding/complete)
@@ -214,4 +236,111 @@ func (c *OnboardingController) GetStepDefinitions(ctx *gin.Context) {
 		"message": "Definiciones de pasos obtenidas exitosamente",
 		"steps":   stepDefinitions,
 	})
+}
+
+// StartOnboarding inicia un nuevo proceso de onboarding (POST /api/v1/onboarding/start)
+func (c *OnboardingController) StartOnboarding(ctx *gin.Context) {
+	var req request.StartOnboardingRequest
+
+	// Bind JSON request (campos opcionales)
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		log.Printf("Error binding JSON (using defaults): %v", err)
+		// No retornamos error aquí porque todos los campos son opcionales
+	}
+
+	// Capturar información adicional del contexto
+	req.IP = ctx.ClientIP()
+	req.UserAgent = ctx.GetHeader("User-Agent")
+
+	response, err := c.startOnboardingUseCase.Execute(&req)
+	if err != nil {
+		log.Printf("Error in StartOnboarding usecase: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Error interno del servidor",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	statusCode := http.StatusOK
+	if !response.Success {
+		statusCode = http.StatusBadRequest
+	}
+
+	ctx.JSON(statusCode, response)
+}
+
+// VerifyEmail verifica el código de email (POST /api/v1/onboarding/verify-email)
+func (c *OnboardingController) VerifyEmail(ctx *gin.Context) {
+	var req request.VerifyEmailRequest
+
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		log.Printf("Error binding JSON: %v", err)
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Datos inválidos en la solicitud",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	response, err := c.verifyEmailUseCase.Execute(&req)
+	if err != nil {
+		log.Printf("Error in VerifyEmail usecase: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Error interno del servidor",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	statusCode := http.StatusOK
+	if !response.Success {
+		if response.Error == "INVALID_VERIFICATION_CODE" {
+			statusCode = http.StatusBadRequest
+		} else {
+			statusCode = http.StatusInternalServerError
+		}
+	}
+
+	ctx.JSON(statusCode, response)
+}
+
+// ResendVerificationEmail reenvía el código de verificación de email (POST /api/v1/onboarding/resend-verification)
+func (c *OnboardingController) ResendVerificationEmail(ctx *gin.Context) {
+	var req request.ResendVerificationRequest
+
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		log.Printf("Error binding JSON: %v", err)
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Datos inválidos en la solicitud",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	response, err := c.resendVerificationUseCase.Execute(&req)
+	if err != nil {
+		log.Printf("Error in ResendVerification usecase: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Error interno del servidor",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	statusCode := http.StatusOK
+	if !response.Success {
+		if response.Error == "RATE_LIMITED" {
+			statusCode = http.StatusTooManyRequests
+		} else {
+			statusCode = http.StatusBadRequest
+		}
+	}
+
+	ctx.JSON(statusCode, response)
 }

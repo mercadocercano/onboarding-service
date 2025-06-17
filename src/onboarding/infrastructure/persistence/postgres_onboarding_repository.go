@@ -20,9 +20,9 @@ type PostgresOnboardingRepository struct {
 func NewPostgresOnboardingRepository(db *sql.DB) port.OnboardingRepository {
 	repo := &PostgresOnboardingRepository{db: db}
 
-	// Inicializar datos por defecto si es necesario
+	// Inicializar datos por defecto
 	if err := repo.initializeDefaultData(); err != nil {
-		log.Printf("Warning: Could not initialize default data: %v", err)
+		log.Printf("Warning: Failed to initialize default data: %v", err)
 	}
 
 	return repo
@@ -30,6 +30,10 @@ func NewPostgresOnboardingRepository(db *sql.DB) port.OnboardingRepository {
 
 // SaveProcess guarda un proceso de onboarding
 func (r *PostgresOnboardingRepository) SaveProcess(process *entity.OnboardingProcess) error {
+	stepsCompletedJSON, _ := json.Marshal(process.StepsCompleted)
+	stepsPendingJSON, _ := json.Marshal(process.StepsPending)
+	stepsSkippedJSON, _ := json.Marshal(process.StepsSkipped)
+
 	query := `
 		INSERT INTO onboarding_processes (
 			id, tenant_id, user_id, current_step_number, is_completed,
@@ -37,11 +41,18 @@ func (r *PostgresOnboardingRepository) SaveProcess(process *entity.OnboardingPro
 			steps_pending, steps_skipped, started_at, completed_at,
 			created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		ON CONFLICT (id) DO UPDATE SET
+			current_step_number = EXCLUDED.current_step_number,
+			is_completed = EXCLUDED.is_completed,
+			company_name = EXCLUDED.company_name,
+			business_type = EXCLUDED.business_type,
+			store_size = EXCLUDED.store_size,
+			steps_completed = EXCLUDED.steps_completed,
+			steps_pending = EXCLUDED.steps_pending,
+			steps_skipped = EXCLUDED.steps_skipped,
+			completed_at = EXCLUDED.completed_at,
+			updated_at = EXCLUDED.updated_at
 	`
-
-	stepsCompletedJSON, _ := json.Marshal(process.StepsCompleted)
-	stepsPendingJSON, _ := json.Marshal(process.StepsPending)
-	stepsSkippedJSON, _ := json.Marshal(process.StepsSkipped)
 
 	_, err := r.db.Exec(query,
 		process.ID,
@@ -61,13 +72,7 @@ func (r *PostgresOnboardingRepository) SaveProcess(process *entity.OnboardingPro
 		process.UpdatedAt,
 	)
 
-	if err != nil {
-		log.Printf("Error saving onboarding process: %v", err)
-		return err
-	}
-
-	log.Printf("Onboarding process saved successfully: %s", process.ID)
-	return nil
+	return err
 }
 
 // GetProcessByID obtiene un proceso por ID
@@ -121,20 +126,27 @@ func (r *PostgresOnboardingRepository) GetProcessByUserID(userID uuid.UUID) (*en
 
 // UpdateProcess actualiza un proceso existente
 func (r *PostgresOnboardingRepository) UpdateProcess(process *entity.OnboardingProcess) error {
-	query := `
-		UPDATE onboarding_processes
-		SET current_step_number = $1, is_completed = $2, company_name = $3,
-			business_type = $4, store_size = $5, steps_completed = $6,
-			steps_pending = $7, steps_skipped = $8, completed_at = $9,
-			updated_at = $10
-		WHERE id = $11
-	`
-
 	stepsCompletedJSON, _ := json.Marshal(process.StepsCompleted)
 	stepsPendingJSON, _ := json.Marshal(process.StepsPending)
 	stepsSkippedJSON, _ := json.Marshal(process.StepsSkipped)
 
+	query := `
+		UPDATE onboarding_processes SET
+			current_step_number = $2,
+			is_completed = $3,
+			company_name = $4,
+			business_type = $5,
+			store_size = $6,
+			steps_completed = $7,
+			steps_pending = $8,
+			steps_skipped = $9,
+			completed_at = $10,
+			updated_at = $11
+		WHERE id = $1
+	`
+
 	_, err := r.db.Exec(query,
+		process.ID,
 		process.CurrentStepNumber,
 		process.IsCompleted,
 		process.CompanyName,
@@ -145,21 +157,14 @@ func (r *PostgresOnboardingRepository) UpdateProcess(process *entity.OnboardingP
 		stepsSkippedJSON,
 		process.CompletedAt,
 		process.UpdatedAt,
-		process.ID,
 	)
 
-	if err != nil {
-		log.Printf("Error updating onboarding process: %v", err)
-		return err
-	}
-
-	return nil
+	return err
 }
 
-// DeleteProcess elimina un proceso
+// DeleteProcess elimina un proceso por ID
 func (r *PostgresOnboardingRepository) DeleteProcess(id uuid.UUID) error {
-	query := `DELETE FROM onboarding_processes WHERE id = $1`
-	_, err := r.db.Exec(query, id)
+	_, err := r.db.Exec("DELETE FROM onboarding_processes WHERE id = $1", id)
 	return err
 }
 
@@ -171,7 +176,7 @@ func (r *PostgresOnboardingRepository) GetStepDefinitions() ([]*entity.StepDefin
 			   is_active, created_at, updated_at
 		FROM onboarding_step_definitions
 		WHERE is_active = true
-		ORDER BY display_order
+		ORDER BY step_number
 	`
 
 	rows, err := r.db.Query(query)
@@ -373,7 +378,106 @@ func (r *PostgresOnboardingRepository) GetProcessStats() (*port.ProcessStats, er
 	return &stats, nil
 }
 
-// Métodos auxiliares para escanear resultados
+// ===============================
+// VERIFICATION CODES METHODS
+// ===============================
+
+// SaveVerificationCode guarda un código de verificación
+func (r *PostgresOnboardingRepository) SaveVerificationCode(code *entity.VerificationCode) error {
+	query := `
+		INSERT INTO verification_codes (
+			id, process_id, email, code, is_used, expires_at, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (id) DO UPDATE SET
+			code = EXCLUDED.code,
+			is_used = EXCLUDED.is_used,
+			expires_at = EXCLUDED.expires_at,
+			updated_at = EXCLUDED.updated_at
+	`
+
+	_, err := r.db.Exec(query,
+		code.ID,
+		code.ProcessID,
+		code.UserEmail,
+		code.Code,
+		code.IsUsed,
+		code.ExpiresAt,
+		code.CreatedAt,
+		code.UpdatedAt,
+	)
+
+	return err
+}
+
+// GetVerificationCodeByProcessID obtiene un código de verificación por process ID
+func (r *PostgresOnboardingRepository) GetVerificationCodeByProcessID(processID uuid.UUID) (*entity.VerificationCode, error) {
+	query := `
+		SELECT id, process_id, email, code, is_used, expires_at, created_at, updated_at
+		FROM verification_codes
+		WHERE process_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+
+	row := r.db.QueryRow(query, processID)
+	return r.scanVerificationCodeRow(row)
+}
+
+// GetVerificationCodeByCode obtiene un código de verificación por el código mismo
+func (r *PostgresOnboardingRepository) GetVerificationCodeByCode(code string) (*entity.VerificationCode, error) {
+	query := `
+		SELECT id, process_id, email, code, is_used, expires_at, created_at, updated_at
+		FROM verification_codes
+		WHERE code = $1 AND is_used = false AND expires_at > NOW()
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+
+	row := r.db.QueryRow(query, code)
+	return r.scanVerificationCodeRow(row)
+}
+
+// UpdateVerificationCode actualiza un código de verificación
+func (r *PostgresOnboardingRepository) UpdateVerificationCode(code *entity.VerificationCode) error {
+	query := `
+		UPDATE verification_codes SET
+			is_used = $2,
+			updated_at = $3
+		WHERE id = $1
+	`
+
+	_, err := r.db.Exec(query,
+		code.ID,
+		code.IsUsed,
+		code.UpdatedAt,
+	)
+
+	return err
+}
+
+// DeleteExpiredVerificationCodes elimina códigos de verificación expirados
+func (r *PostgresOnboardingRepository) DeleteExpiredVerificationCodes() error {
+	query := `
+		DELETE FROM verification_codes
+		WHERE expires_at < NOW() OR created_at < NOW() - INTERVAL '24 hours'
+	`
+
+	result, err := r.db.Exec(query)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected > 0 {
+		log.Printf("Deleted %d expired verification codes", rowsAffected)
+	}
+
+	return nil
+}
+
+// ===============================
+// HELPER SCANNING METHODS
+// ===============================
 
 func (r *PostgresOnboardingRepository) scanProcess(row *sql.Row) (*entity.OnboardingProcess, error) {
 	var process entity.OnboardingProcess
@@ -495,6 +599,28 @@ func (r *PostgresOnboardingRepository) scanStepDefinitionRow(row *sql.Row) (*ent
 	)
 
 	return &stepDef, err
+}
+
+// scanVerificationCodeRow escanea una fila de código de verificación
+func (r *PostgresOnboardingRepository) scanVerificationCodeRow(row *sql.Row) (*entity.VerificationCode, error) {
+	var code entity.VerificationCode
+
+	err := row.Scan(
+		&code.ID,
+		&code.ProcessID,
+		&code.UserEmail,
+		&code.Code,
+		&code.IsUsed,
+		&code.ExpiresAt,
+		&code.CreatedAt,
+		&code.UpdatedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &code, nil
 }
 
 // initializeDefaultData inicializa datos por defecto

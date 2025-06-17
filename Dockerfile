@@ -18,8 +18,8 @@ FROM alpine:3.18
 
 # Variables de entorno configurables
 ARG APP_VERSION=1.0
-ARG APP_PORT=8080
-ARG APP_ENV=production
+ARG APP_PORT=8110
+ARG APP_ENV=development
 
 # Añadir etiquetas para mejor gestión desde Terraform
 LABEL maintainer="SaaS Team" \
@@ -33,7 +33,7 @@ ENV PORT=${APP_PORT} \
     APP_ENV=${APP_ENV}
 
 # Instalar dependencias necesarias en una sola capa
-RUN apk add --no-cache postgresql-client dos2unix ca-certificates tzdata && \
+RUN apk add --no-cache postgresql-client dos2unix ca-certificates tzdata wget && \
     cp /usr/share/zoneinfo/UTC /etc/localtime && \
     echo "UTC" > /etc/timezone && \
     adduser -D appuser
@@ -43,10 +43,8 @@ WORKDIR /app
 # Copiar el binario compilado desde el stage anterior
 COPY --from=builder /app/main .
 
-# Copiar todas las migraciones disponibles
+# Copiar las migraciones
 COPY --from=builder /app/migrations ./migrations
-COPY --from=builder /app/scripts ./scripts
-COPY --from=builder /app/src/onboarding/infrastructure/persistence/migrations ./migrations/onboarding
 
 # Asignar permisos adecuados
 RUN chmod +x /app/main && \

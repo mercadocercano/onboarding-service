@@ -31,6 +31,7 @@ type CreateTenantRequest struct {
 	Description string `json:"description"`
 	Type        string `json:"type"`
 	OwnerID     string `json:"owner_id"`
+	Domain      string `json:"domain,omitempty"`
 }
 
 // UpdateTenantRequest representa una solicitud de actualización de tenant

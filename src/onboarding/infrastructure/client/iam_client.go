@@ -68,15 +68,19 @@ func (c *IAMHTTPClient) CreateTenant(request *port.CreateTenantRequest) (*port.T
 		return nil, fmt.Errorf("IAM service error: %s (status: %d)", string(body), resp.StatusCode)
 	}
 
-	var result struct {
-		Tenant *port.TenantResponse `json:"tenant"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
+	var tenant port.TenantResponse
+	if err := json.Unmarshal(body, &tenant); err != nil {
 		return nil, fmt.Errorf("error unmarshaling response: %w", err)
 	}
 
-	log.Printf("Tenant created successfully: %s", result.Tenant.ID)
-	return result.Tenant, nil
+	// Verificar que el tenant fue creado correctamente
+	if tenant.ID == "" {
+		log.Printf("IAM service response body: %s", string(body))
+		return nil, fmt.Errorf("IAM service returned empty tenant data")
+	}
+
+	log.Printf("Tenant created successfully: %s", tenant.ID)
+	return &tenant, nil
 }
 
 // GetTenant obtiene un tenant por ID
@@ -259,15 +263,19 @@ func (c *IAMHTTPClient) CreateUser(request *port.CreateUserRequest) (*port.UserR
 		return nil, fmt.Errorf("IAM service error: %s (status: %d)", string(body), resp.StatusCode)
 	}
 
-	var result struct {
-		User *port.UserResponse `json:"user"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
+	var user port.UserResponse
+	if err := json.Unmarshal(body, &user); err != nil {
 		return nil, fmt.Errorf("error unmarshaling response: %w", err)
 	}
 
-	log.Printf("User created successfully: %s", result.User.ID)
-	return result.User, nil
+	// Verificar que el usuario fue creado correctamente
+	if user.ID == "" {
+		log.Printf("IAM service response body: %s", string(body))
+		return nil, fmt.Errorf("IAM service returned empty user data")
+	}
+
+	log.Printf("User created successfully: %s", user.ID)
+	return &user, nil
 }
 
 // GetUser obtiene un usuario por ID

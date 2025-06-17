@@ -10,6 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	onboardingConfig "onboarding/src/onboarding/infrastructure/config"
+	"onboarding/src/onboarding/infrastructure/migration"
 )
 
 func main() {
@@ -19,6 +20,11 @@ func main() {
 		log.Fatalf("Error connecting to database: %v", err)
 	}
 	defer db.Close()
+
+	// Ejecutar migraciones automáticamente
+	if err := runMigrations(db); err != nil {
+		log.Fatalf("Error running migrations: %v", err)
+	}
 
 	// Configuración del router
 	router := gin.New() // Usar gin.New() para evitar middlewares duplicados
@@ -106,4 +112,13 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// runMigrations ejecuta las migraciones de base de datos
+func runMigrations(db *sql.DB) error {
+	migrationsPath := migration.GetMigrationsPath()
+	log.Printf("Using migrations path: %s", migrationsPath)
+	
+	migrator := migration.NewMigrator(db, migrationsPath)
+	return migrator.RunMigrations()
 }

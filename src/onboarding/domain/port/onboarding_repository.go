@@ -21,6 +21,13 @@ type OnboardingRepository interface {
 	GetStepDefinitionByNumber(stepNumber int) (*entity.StepDefinition, error)
 	SaveStepDefinition(stepDef *entity.StepDefinition) error
 
+	// Verification code operations
+	SaveVerificationCode(code *entity.VerificationCode) error
+	GetVerificationCodeByProcessID(processID uuid.UUID) (*entity.VerificationCode, error)
+	GetVerificationCodeByCode(code string) (*entity.VerificationCode, error)
+	UpdateVerificationCode(code *entity.VerificationCode) error
+	DeleteExpiredVerificationCodes() error
+
 	// Queries
 	GetActiveProcesses() ([]*entity.OnboardingProcess, error)
 	GetCompletedProcesses() ([]*entity.OnboardingProcess, error)

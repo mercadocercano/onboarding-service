@@ -22,15 +22,24 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 	// 2. Inicializar clientes externos
 	iamClient := client.NewIAMClient()
 	pimClient := client.NewPIMClient()
+	notificationClient := client.NewNotificationClient()
 
 	// 3. Inicializar casos de uso
-	registerUserUseCase := usecase.NewRegisterUserUseCase(onboardingRepo, iamClient)
+	startOnboardingUseCase := usecase.NewStartOnboardingUseCase(onboardingRepo)
+	registerUserUseCase := usecase.NewRegisterUserUseCase(onboardingRepo, iamClient, notificationClient)
+	verifyEmailUseCase := usecase.NewVerifyEmailUseCase(onboardingRepo, iamClient)
+	resendVerificationUseCase := usecase.NewResendVerificationUseCase(onboardingRepo, notificationClient)
 	setupStoreUseCase := usecase.NewSetupStoreUseCase(onboardingRepo, pimClient, iamClient)
+	getProcessStatusUseCase := usecase.NewGetProcessStatusUseCase(onboardingRepo)
 
 	// 4. Inicializar controladores
 	onboardingController := controller.NewOnboardingController(
+		startOnboardingUseCase,
 		registerUserUseCase,
+		verifyEmailUseCase,
+		resendVerificationUseCase,
 		setupStoreUseCase,
+		getProcessStatusUseCase,
 		pimClient,
 		onboardingRepo,
 	)
@@ -47,7 +56,10 @@ func setupRoutes(router *gin.RouterGroup, controller *controller.OnboardingContr
 	onboardingGroup := router.Group("/onboarding")
 	{
 		// Rutas principales del proceso de onboarding
+		onboardingGroup.POST("/start", controller.StartOnboarding)
 		onboardingGroup.POST("/register-user", controller.RegisterUser)
+		onboardingGroup.POST("/verify-email", controller.VerifyEmail)
+		onboardingGroup.POST("/resend-verification", controller.ResendVerificationEmail)
 		onboardingGroup.POST("/setup-store", controller.SetupStore)
 		onboardingGroup.POST("/complete", controller.CompleteOnboarding)
 
@@ -61,7 +73,10 @@ func setupRoutes(router *gin.RouterGroup, controller *controller.OnboardingContr
 	}
 
 	log.Println("Onboarding routes configured:")
+	log.Println("  POST /api/v1/onboarding/start")
 	log.Println("  POST /api/v1/onboarding/register-user")
+	log.Println("  POST /api/v1/onboarding/verify-email")
+	log.Println("  POST /api/v1/onboarding/resend-verification")
 	log.Println("  POST /api/v1/onboarding/setup-store")
 	log.Println("  POST /api/v1/onboarding/complete")
 	log.Println("  GET  /api/v1/onboarding/business-types")

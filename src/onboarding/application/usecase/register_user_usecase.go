@@ -1,9 +1,11 @@
 package usecase
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -11,22 +13,26 @@ import (
 	"onboarding/src/onboarding/application/response"
 	"onboarding/src/onboarding/domain/entity"
 	"onboarding/src/onboarding/domain/port"
+	"onboarding/src/onboarding/infrastructure/client"
 )
 
 // RegisterUserUseCase maneja el registro completo de usuario
 type RegisterUserUseCase struct {
-	onboardingRepo port.OnboardingRepository
-	iamClient      port.IAMClient
+	onboardingRepo     port.OnboardingRepository
+	iamClient          port.IAMClient
+	notificationClient port.NotificationClient
 }
 
 // NewRegisterUserUseCase crea una nueva instancia del caso de uso
 func NewRegisterUserUseCase(
 	onboardingRepo port.OnboardingRepository,
 	iamClient port.IAMClient,
+	notificationClient port.NotificationClient,
 ) *RegisterUserUseCase {
 	return &RegisterUserUseCase{
-		onboardingRepo: onboardingRepo,
-		iamClient:      iamClient,
+		onboardingRepo:     onboardingRepo,
+		iamClient:          iamClient,
+		notificationClient: notificationClient,
 	}
 }
 
@@ -38,20 +44,18 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 		return response.NewRegisterUserErrorResponse(err.Error()), nil
 	}
 
-	// 2. Crear tenant temporal (se completará después)
+	// 2. Obtener rol TENANT_ADMIN primero
+	tenantAdminRole, err := uc.iamClient.GetRoleByType("TENANT_ADMIN")
+	if err != nil {
+		log.Printf("Error getting tenant admin role: %v", err)
+		return response.NewRegisterUserErrorResponse("Error en la configuración de permisos"), err
+	}
+
+	// 3. Crear tenant temporal con owner temporal
 	tenant, err := uc.createTenant(req)
 	if err != nil {
 		log.Printf("Error creating tenant: %v", err)
 		return response.NewRegisterUserErrorResponse("Error al crear la organización"), err
-	}
-
-	// 3. Obtener rol TENANT_ADMIN
-	tenantAdminRole, err := uc.iamClient.GetRoleByType("TENANT_ADMIN")
-	if err != nil {
-		log.Printf("Error getting tenant admin role: %v", err)
-		// Rollback: eliminar tenant
-		uc.iamClient.DeleteTenant(tenant.ID)
-		return response.NewRegisterUserErrorResponse("Error en la configuración de permisos"), err
 	}
 
 	// 4. Crear usuario con rol de administrador
@@ -63,15 +67,8 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 		return response.NewRegisterUserErrorResponse("Error al crear el usuario"), err
 	}
 
-	// 5. Actualizar owner del tenant
-	err = uc.iamClient.UpdateTenantOwner(tenant.ID, user.ID)
-	if err != nil {
-		log.Printf("Error updating tenant owner: %v", err)
-		// Rollback: eliminar usuario y tenant
-		uc.iamClient.DeleteUser(user.ID)
-		uc.iamClient.DeleteTenant(tenant.ID)
-		return response.NewRegisterUserErrorResponse("Error en la configuración final"), err
-	}
+	// 5. Nota: El owner se actualiza automáticamente en el IAM service cuando se crea el usuario
+	// No necesitamos llamar UpdateTenantOwner por separado
 
 	// 6. Crear proceso de onboarding
 	process, err := uc.createOnboardingProcess(tenant.ID, user.ID)
@@ -81,7 +78,30 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 		// Solo logear el error y continuar
 	}
 
-	// 7. Preparar respuesta exitosa
+	// 7. *** NUEVO: Generar y enviar código de verificación ***
+	verificationCode := client.GenerateVerificationCode()
+	processID := uuid.Nil
+	if process != nil {
+		processID = process.ID
+	}
+
+	// Guardar código de verificación en la base de datos
+	if err := uc.saveVerificationCode(processID, req.GetCleanEmail(), verificationCode); err != nil {
+		log.Printf("Error saving verification code: %v", err)
+		// No fallar todo el proceso por esto, solo logear
+	}
+
+	// Enviar email de verificación
+	ctx := context.Background()
+	if err := uc.notificationClient.SendEmailVerification(ctx, req.GetCleanEmail(), req.GetCleanName(), verificationCode); err != nil {
+		log.Printf("Error sending verification email: %v", err)
+		// No fallar todo el proceso, pero logear el error
+		// En producción podrías querer marcar esto para reintento
+	} else {
+		log.Printf("Verification email sent successfully to: %s with code: %s", req.GetCleanEmail(), verificationCode)
+	}
+
+	// 8. Preparar respuesta exitosa
 	userData := response.UserData{
 		ID:    user.ID,
 		Name:  user.Name,
@@ -97,14 +117,23 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 		Description: tenant.Description,
 	}
 
-	processID := ""
+	processIDStr := ""
 	if process != nil {
-		processID = process.ID.String()
+		processIDStr = process.ID.String()
 	}
 
 	log.Printf("User registered successfully: email=%s, tenant=%s, user=%s", req.Email, tenant.ID, user.ID)
 
-	return response.NewRegisterUserResponse(processID, tenant.ID, user.ID, userData, tenantData), nil
+	return response.NewRegisterUserResponse(processIDStr, tenant.ID, user.ID, userData, tenantData), nil
+}
+
+// saveVerificationCode guarda el código de verificación en la base de datos
+func (uc *RegisterUserUseCase) saveVerificationCode(processID uuid.UUID, email, code string) error {
+	// Crear entidad de código de verificación
+	verificationCode := entity.NewVerificationCode(processID, email, code)
+
+	// Guardar en el repositorio
+	return uc.onboardingRepo.SaveVerificationCode(verificationCode)
 }
 
 // createTenant crea un tenant temporal para el usuario
@@ -112,15 +141,27 @@ func (uc *RegisterUserUseCase) createTenant(req *request.RegisterUserRequest) (*
 	tenantName := fmt.Sprintf("Tienda de %s", req.GetCleanName())
 	slug := uc.generateSlugFromName(req.GetCleanName())
 
+	// Generar UUID temporal válido para el owner (se actualizará después)
+	tempOwnerUUID := uuid.New().String()
+
 	tenantData := &port.CreateTenantRequest{
 		Name:        tenantName,
 		Slug:        slug,
 		Description: fmt.Sprintf("Tienda administrada por %s", req.GetCleanEmail()),
-		Type:        "STARTUP",   // Default temporal, se actualiza en paso 4
-		OwnerID:     "temp-uuid", // Se actualiza después de crear el usuario
+		Type:        "STARTUP",                            // Default temporal, se actualiza en paso 4
+		OwnerID:     tempOwnerUUID,                        // UUID válido temporal, se actualiza después de crear el usuario
+		Domain:      fmt.Sprintf("%s.mitienda.com", slug), // Generar dominio único basado en slug
 	}
 
-	return uc.iamClient.CreateTenant(tenantData)
+	log.Printf("Creating tenant with data: Name=%s, Slug=%s, OwnerID=%s", tenantData.Name, tenantData.Slug, tenantData.OwnerID)
+
+	tenant, err := uc.iamClient.CreateTenant(tenantData)
+	if err != nil {
+		log.Printf("Error creating tenant: %v", err)
+		return nil, err
+	}
+
+	return tenant, nil
 }
 
 // createUser crea el usuario administrador del tenant
@@ -168,17 +209,53 @@ func (uc *RegisterUserUseCase) createOnboardingProcess(tenantID, userID string) 
 	return process, nil
 }
 
-// generateSlugFromName genera un slug único para el tenant
+// generateSlugFromName genera un slug único para el tenant (solo alfanumérico)
 func (uc *RegisterUserUseCase) generateSlugFromName(name string) string {
-	// Convertir a minúsculas y reemplazar espacios
+	// Convertir a minúsculas y limpiar caracteres especiales
 	slug := strings.ToLower(name)
-	slug = strings.ReplaceAll(slug, " ", "-")
+	slug = strings.ReplaceAll(slug, " ", "")
 	slug = strings.ReplaceAll(slug, ".", "")
 	slug = strings.ReplaceAll(slug, ",", "")
+	slug = strings.ReplaceAll(slug, "-", "")
+	slug = strings.ReplaceAll(slug, "_", "")
+	slug = strings.ReplaceAll(slug, "@", "")
 
-	// Agregar sufijo aleatorio para garantizar unicidad
-	randomSuffix := uuid.New().String()[:8]
-	slug = fmt.Sprintf("%s-%s", slug, randomSuffix)
+	// Mantener solo caracteres alfanuméricos
+	var result strings.Builder
+	for _, char := range slug {
+		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') {
+			result.WriteRune(char)
+		}
+	}
 
-	return slug
+	cleanSlug := result.String()
+
+	// Si el slug queda muy corto, usar un slug por defecto
+	if len(cleanSlug) < 3 {
+		cleanSlug = "store"
+	}
+
+	// Usar timestamp + UUID para garantizar unicidad absoluta
+	timestamp := time.Now().Unix()
+	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
+
+	// Tomar solo los primeros 8 caracteres del UUID (alfanumérico)
+	uniqueSuffix := ""
+	for _, char := range uniqueID {
+		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') {
+			uniqueSuffix += string(char)
+			if len(uniqueSuffix) >= 8 {
+				break
+			}
+		}
+	}
+
+	finalSlug := fmt.Sprintf("%s%d%s", cleanSlug, timestamp, uniqueSuffix)
+
+	// Limitar longitud total del slug
+	if len(finalSlug) > 50 {
+		finalSlug = finalSlug[:50]
+	}
+
+	return finalSlug
 }
