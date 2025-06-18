@@ -70,7 +70,7 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 	// 5. Nota: El owner se actualiza automáticamente en el IAM service cuando se crea el usuario
 	// No necesitamos llamar UpdateTenantOwner por separado
 
-	// 6. Crear proceso de onboarding
+	// 6. Crear proceso de onboarding real
 	process, err := uc.createOnboardingProcess(tenant.ID, user.ID)
 	if err != nil {
 		log.Printf("Error creating onboarding process: %v", err)
@@ -178,7 +178,7 @@ func (uc *RegisterUserUseCase) createUser(req *request.RegisterUserRequest, tena
 	return uc.iamClient.CreateUser(userData)
 }
 
-// createOnboardingProcess crea el proceso de onboarding
+// createOnboardingProcess crea el proceso de onboarding real
 func (uc *RegisterUserUseCase) createOnboardingProcess(tenantID, userID string) (*entity.OnboardingProcess, error) {
 	tenantUUID, err := uuid.Parse(tenantID)
 	if err != nil {
@@ -190,6 +190,7 @@ func (uc *RegisterUserUseCase) createOnboardingProcess(tenantID, userID string) 
 		return nil, fmt.Errorf("invalid user UUID: %w", err)
 	}
 
+	// Crear nuevo proceso de onboarding con datos reales
 	process := entity.NewOnboardingProcess(tenantUUID, userUUID)
 
 	// Marcar paso 1 (bienvenida) como completado automáticamente

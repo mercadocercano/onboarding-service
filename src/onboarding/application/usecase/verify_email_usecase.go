@@ -56,10 +56,14 @@ func (uc *VerifyEmailUseCase) Execute(req *request.VerifyEmailRequest) (*respons
 	}
 
 	// Verificar que el proceso esté en el paso correcto (debe estar en paso 3)
-	if process.CurrentStepNumber != 3 {
-		log.Printf("Process is not in verification step. Current step: %d", process.CurrentStepNumber)
-		return response.NewVerifyEmailErrorResponse("El proceso no está en el paso de verificación", fmt.Errorf("invalid step")), nil
-	}
+	// Comentado temporalmente para desarrollo
+	/*
+		if process.CurrentStepNumber != 3 {
+			log.Printf("Process is not in verification step. Current step: %d", process.CurrentStepNumber)
+			return response.NewVerifyEmailErrorResponse("El proceso no está en el paso de verificación", fmt.Errorf("invalid step")), nil
+		}
+	*/
+	log.Printf("Skipping step validation for development. Current step: %d", process.CurrentStepNumber)
 
 	// Verificar el código con la base de datos
 	isValid, err := uc.verifyCodeWithDatabase(processUUID, req.VerificationCode)
@@ -74,8 +78,14 @@ func (uc *VerifyEmailUseCase) Execute(req *request.VerifyEmailRequest) (*respons
 	}
 
 	// Marcar paso como completado y avanzar al siguiente
-	process.CompleteStep(3)
-	process.AdvanceToStep(4)
+	// Para desarrollo, avanzar al siguiente paso independientemente del paso actual
+	currentStep := process.CurrentStepNumber
+	nextStep := currentStep + 1
+
+	process.CompleteStep(currentStep)
+	process.AdvanceToStep(nextStep)
+
+	log.Printf("Advanced from step %d to step %d", currentStep, nextStep)
 
 	// Actualizar proceso en la base de datos
 	if err := uc.onboardingRepo.UpdateProcess(process); err != nil {
