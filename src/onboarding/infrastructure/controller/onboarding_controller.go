@@ -9,9 +9,10 @@ import (
 	"onboarding/src/onboarding/application/request"
 	"onboarding/src/onboarding/application/usecase"
 	"onboarding/src/onboarding/domain/port"
+	"onboarding/src/shared/middleware"
 )
 
-// OnboardingController maneja las operaciones HTTP del onboarding
+// OnboardingController maneja las operaciones HTTP del onboarding - versión refactorizada
 type OnboardingController struct {
 	startOnboardingUseCase    *usecase.StartOnboardingUseCase
 	registerUserUseCase       *usecase.RegisterUserUseCase
@@ -52,176 +53,107 @@ func NewOnboardingController(
 	}
 }
 
-// RegisterUser maneja el registro de usuario (POST /api/v1/onboarding/register-user)
+// RegisterUser maneja el registro de usuario - versión refactorizada
 func (c *OnboardingController) RegisterUser(ctx *gin.Context) {
 	var req request.RegisterUserRequest
 
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		log.Printf("Error binding JSON: %v", err)
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Datos inválidos en la solicitud",
-			"error":   err.Error(),
-		})
-		return
+	if middleware.ShouldBindJSONWithError(ctx, &req) != nil {
+		return // Error ya manejado por el middleware
 	}
 
 	response, err := c.registerUserUseCase.Execute(&req)
 	if err != nil {
-		log.Printf("Error in RegisterUser usecase: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Error interno del servidor",
-			"error":   err.Error(),
-		})
+		middleware.AbortWithError(ctx, err)
 		return
 	}
 
-	statusCode := http.StatusOK
-	if !response.Success {
-		statusCode = http.StatusBadRequest
-	}
-
-	ctx.JSON(statusCode, response)
+	ctx.JSON(http.StatusOK, response)
 }
 
-// SetupStore maneja la configuración de la tienda (POST /api/v1/onboarding/setup-store)
+// SetupStore maneja la configuración de la tienda - versión refactorizada
 func (c *OnboardingController) SetupStore(ctx *gin.Context) {
 	var req request.SetupStoreRequest
 
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		log.Printf("Error binding JSON: %v", err)
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Datos inválidos en la solicitud",
-			"error":   err.Error(),
-		})
+	if middleware.ShouldBindJSONWithError(ctx, &req) != nil {
 		return
 	}
 
 	response, err := c.setupStoreUseCase.Execute(&req)
 	if err != nil {
-		log.Printf("Error in SetupStore usecase: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Error interno del servidor",
-			"error":   err.Error(),
-		})
+		middleware.AbortWithError(ctx, err)
 		return
 	}
 
-	statusCode := http.StatusOK
-	if !response.Success {
-		statusCode = http.StatusBadRequest
-	}
-
-	ctx.JSON(statusCode, response)
+	ctx.JSON(http.StatusOK, response)
 }
 
-// SelectPlan maneja la selección de plan (POST /api/v1/onboarding/select-plan)
+// SelectPlan maneja la selección de plan - versión refactorizada
 func (c *OnboardingController) SelectPlan(ctx *gin.Context) {
 	var req request.SelectPlanRequest
 
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		log.Printf("Error binding JSON: %v", err)
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Datos inválidos en la solicitud",
-			"error":   err.Error(),
-		})
+	if middleware.ShouldBindJSONWithError(ctx, &req) != nil {
 		return
 	}
 
 	response, err := c.selectPlanUseCase.Execute(&req)
 	if err != nil {
-		log.Printf("Error in SelectPlan usecase: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Error interno del servidor",
-			"error":   err.Error(),
-		})
+		middleware.AbortWithError(ctx, err)
 		return
 	}
 
-	statusCode := http.StatusOK
-	if !response.Success {
-		statusCode = http.StatusBadRequest
-	}
-
-	ctx.JSON(statusCode, response)
+	ctx.JSON(http.StatusOK, response)
 }
 
-// GetBusinessTypes obtiene todos los tipos de negocio disponibles desde PIM
+// GetBusinessTypes obtiene tipos de negocio - versión refactorizada
 func (c *OnboardingController) GetBusinessTypes(ctx *gin.Context) {
 	businessTypes, err := c.pimClient.GetBusinessTypes()
 	if err != nil {
 		log.Printf("Error obtaining business types from PIM: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   "Error interno del servidor",
-		})
+		middleware.AbortWithError(ctx, err)
 		return
 	}
 
-	// DEBUG: Verificar qué llega desde el PIM
-	log.Printf("DEBUG: Número de business types recibidos: %d", len(businessTypes))
-	if len(businessTypes) > 0 {
-		log.Printf("DEBUG: Primer business type raw: ID='%s', Name='%s', Icon='%s'",
-			businessTypes[0].ID, businessTypes[0].Name, businessTypes[0].Icon)
-	}
-
-	// Transformar structure del PIM a estructura de respuesta usando el ID directamente
-	transformedBusinessTypes := make([]map[string]interface{}, len(businessTypes))
+	// Transformar para response
+	response := make([]map[string]interface{}, len(businessTypes))
 	for i, bt := range businessTypes {
-		// DEBUG: Log cada business type antes de transformar
-		log.Printf("DEBUG: BT[%d] - ID='%s', Name='%s', Icon='%s'", i, bt.ID, bt.Name, bt.Icon)
-
-		transformedBusinessTypes[i] = map[string]interface{}{
-			"id":          bt.ID, // Usar el campo ID directamente (retail, food-beverage, etc.)
-			"name":        bt.Name,
-			"description": bt.Description,
-			"icon":        bt.Icon,
-			"color":       bt.Color,     // Color del PIM
-			"is_active":   bt.IsActive,  // Estado del PIM
-			"sort_order":  bt.SortOrder, // Orden del PIM
-			"created_at":  bt.CreatedAt, // Timestamp del PIM (ahora mapeado como camelCase)
-			"updated_at":  bt.UpdatedAt, // Timestamp del PIM (ahora mapeado como camelCase)
-
-			// Campos adicionales vacíos para compatibilidad
+		response[i] = map[string]interface{}{
+			"id":                 bt.ID,
+			"name":               bt.Name,
+			"description":        bt.Description,
+			"icon":               bt.Icon,
+			"color":              bt.Color,
+			"is_active":          bt.IsActive,
+			"sort_order":         bt.SortOrder,
+			"created_at":         bt.CreatedAt,
+			"updated_at":         bt.UpdatedAt,
 			"default_categories": []string{},
 			"default_attributes": []string{},
 			"default_variants":   []string{},
 		}
 	}
 
-	log.Printf("Retrieved and transformed %d business types from PIM service", len(transformedBusinessTypes))
-
 	ctx.JSON(http.StatusOK, gin.H{
 		"success":        true,
-		"business_types": transformedBusinessTypes,
+		"business_types": response,
 		"message":        "Tipos de negocio obtenidos exitosamente",
 	})
 }
 
-// GetCategories obtiene las categorías por tipo de negocio (GET /api/v1/onboarding/categories)
+// GetCategories obtiene categorías por tipo de negocio - versión refactorizada
 func (c *OnboardingController) GetCategories(ctx *gin.Context) {
 	businessType := ctx.Query("business_type")
 	if businessType == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "El parámetro business_type es requerido",
+		middleware.AbortWithBusinessError(ctx, middleware.BusinessError{
+			Code:       "MISSING_BUSINESS_TYPE",
+			Message:    "El parámetro business_type es requerido",
+			HTTPStatus: http.StatusBadRequest,
 		})
 		return
 	}
 
 	categories, err := c.pimClient.GetCategoriesByBusinessType(businessType)
 	if err != nil {
-		log.Printf("Error getting categories for business type %s: %v", businessType, err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Error al obtener categorías",
-			"error":   err.Error(),
-		})
+		middleware.AbortWithError(ctx, err)
 		return
 	}
 
@@ -233,79 +165,49 @@ func (c *OnboardingController) GetCategories(ctx *gin.Context) {
 	})
 }
 
-// GetProcessStatus obtiene el estado del proceso de onboarding (GET /api/v1/onboarding/process/:id)
+// GetProcessStatus obtiene el estado del proceso - versión refactorizada
 func (c *OnboardingController) GetProcessStatus(ctx *gin.Context) {
 	processID := ctx.Param("id")
 	if processID == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "ID de proceso requerido",
+		middleware.AbortWithBusinessError(ctx, middleware.BusinessError{
+			Code:       "MISSING_PROCESS_ID",
+			Message:    "ID de proceso requerido",
+			HTTPStatus: http.StatusBadRequest,
 		})
 		return
 	}
 
 	response, err := c.getProcessStatusUseCase.Execute(processID)
 	if err != nil {
-		log.Printf("Error in GetProcessStatus usecase: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Error interno del servidor",
-			"error":   err.Error(),
-		})
+		middleware.AbortWithError(ctx, err)
 		return
 	}
 
-	statusCode := http.StatusOK
-	if !response.Success {
-		statusCode = http.StatusNotFound
-	}
-
-	ctx.JSON(statusCode, response)
+	ctx.JSON(http.StatusOK, response)
 }
 
-// CompleteOnboarding marca el onboarding como completado (POST /api/v1/onboarding/complete)
+// CompleteOnboarding completa el proceso - versión refactorizada
 func (c *OnboardingController) CompleteOnboarding(ctx *gin.Context) {
 	var req request.CompleteOnboardingRequest
 
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		log.Printf("Error binding JSON: %v", err)
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Datos inválidos en la solicitud",
-			"error":   err.Error(),
-		})
+	if middleware.ShouldBindJSONWithError(ctx, &req) != nil {
 		return
 	}
 
 	response, err := c.completeOnboardingUseCase.Execute(&req)
 	if err != nil {
-		log.Printf("Error in CompleteOnboarding usecase: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Error interno del servidor",
-			"error":   err.Error(),
-		})
+		middleware.AbortWithError(ctx, err)
 		return
 	}
 
-	statusCode := http.StatusOK
-	if !response.Success {
-		statusCode = http.StatusBadRequest
-	}
-
-	ctx.JSON(statusCode, response)
+	ctx.JSON(http.StatusOK, response)
 }
 
-// GetStepDefinitions obtiene las definiciones de pasos (GET /api/v1/onboarding/steps)
+// GetStepDefinitions obtiene definiciones de pasos - versión refactorizada
 func (c *OnboardingController) GetStepDefinitions(ctx *gin.Context) {
 	stepDefinitions, err := c.onboardingRepo.GetStepDefinitions()
 	if err != nil {
-		log.Printf("Error getting step definitions: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Error al obtener definiciones de pasos",
-			"error":   err.Error(),
-		})
+		middleware.AbortWithError(ctx, err)
 		return
 	}
 
@@ -316,109 +218,55 @@ func (c *OnboardingController) GetStepDefinitions(ctx *gin.Context) {
 	})
 }
 
-// StartOnboarding inicia un nuevo proceso de onboarding (POST /api/v1/onboarding/start)
+// StartOnboarding inicia proceso - versión refactorizada
 func (c *OnboardingController) StartOnboarding(ctx *gin.Context) {
 	var req request.StartOnboardingRequest
 
-	// Bind JSON request (campos opcionales)
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		log.Printf("Error binding JSON (using defaults): %v", err)
-		// No retornamos error aquí porque todos los campos son opcionales
-	}
+	// Bind JSON (campos opcionales, no abortamos en error)
+	ctx.ShouldBindJSON(&req)
 
-	// Capturar información adicional del contexto
 	req.IP = ctx.ClientIP()
 	req.UserAgent = ctx.GetHeader("User-Agent")
 
 	response, err := c.startOnboardingUseCase.Execute(&req)
 	if err != nil {
-		log.Printf("Error in StartOnboarding usecase: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Error interno del servidor",
-			"error":   err.Error(),
-		})
+		middleware.AbortWithError(ctx, err)
 		return
 	}
 
-	statusCode := http.StatusOK
-	if !response.Success {
-		statusCode = http.StatusBadRequest
-	}
-
-	ctx.JSON(statusCode, response)
+	ctx.JSON(http.StatusOK, response)
 }
 
-// VerifyEmail verifica el código de email (POST /api/v1/onboarding/verify-email)
+// VerifyEmail verifica código de email - versión refactorizada
 func (c *OnboardingController) VerifyEmail(ctx *gin.Context) {
 	var req request.VerifyEmailRequest
 
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		log.Printf("Error binding JSON: %v", err)
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Datos inválidos en la solicitud",
-			"error":   err.Error(),
-		})
+	if middleware.ShouldBindJSONWithError(ctx, &req) != nil {
 		return
 	}
 
 	response, err := c.verifyEmailUseCase.Execute(&req)
 	if err != nil {
-		log.Printf("Error in VerifyEmail usecase: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Error interno del servidor",
-			"error":   err.Error(),
-		})
+		middleware.AbortWithError(ctx, err)
 		return
 	}
 
-	statusCode := http.StatusOK
-	if !response.Success {
-		if response.Error == "INVALID_VERIFICATION_CODE" {
-			statusCode = http.StatusBadRequest
-		} else {
-			statusCode = http.StatusInternalServerError
-		}
-	}
-
-	ctx.JSON(statusCode, response)
+	ctx.JSON(http.StatusOK, response)
 }
 
-// ResendVerificationEmail reenvía el código de verificación de email (POST /api/v1/onboarding/resend-verification)
+// ResendVerificationEmail reenvía código - versión refactorizada
 func (c *OnboardingController) ResendVerificationEmail(ctx *gin.Context) {
 	var req request.ResendVerificationRequest
 
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		log.Printf("Error binding JSON: %v", err)
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Datos inválidos en la solicitud",
-			"error":   err.Error(),
-		})
+	if middleware.ShouldBindJSONWithError(ctx, &req) != nil {
 		return
 	}
 
 	response, err := c.resendVerificationUseCase.Execute(&req)
 	if err != nil {
-		log.Printf("Error in ResendVerification usecase: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Error interno del servidor",
-			"error":   err.Error(),
-		})
+		middleware.AbortWithError(ctx, err)
 		return
 	}
 
-	statusCode := http.StatusOK
-	if !response.Success {
-		if response.Error == "RATE_LIMITED" {
-			statusCode = http.StatusTooManyRequests
-		} else {
-			statusCode = http.StatusBadRequest
-		}
-	}
-
-	ctx.JSON(statusCode, response)
+	ctx.JSON(http.StatusOK, response)
 }

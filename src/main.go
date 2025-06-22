@@ -13,6 +13,7 @@ import (
 
 	onboardingConfig "onboarding/src/onboarding/infrastructure/config"
 	"onboarding/src/onboarding/infrastructure/migration"
+	"onboarding/src/shared/middleware"
 )
 
 func main() {
@@ -34,6 +35,9 @@ func main() {
 	// Agregar middlewares básicos necesarios
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
+
+	// Agregar middleware de manejo de errores
+	router.Use(middleware.ErrorHandlerMiddleware())
 
 	// Configurar Prometheus metrics si está habilitado
 	prometheusEnabled := os.Getenv("PROMETHEUS_ENABLED")
