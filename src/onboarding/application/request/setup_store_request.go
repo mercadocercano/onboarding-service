@@ -11,7 +11,7 @@ type SetupStoreRequest struct {
 	StoreName          string   `json:"store_name" validate:"required,min=2,max=100"`
 	BusinessType       string   `json:"business_type" validate:"required"`
 	StoreSize          string   `json:"store_size" validate:"required"`
-	SelectedCategories []string `json:"selected_categories" validate:"required,min=1"`
+	SelectedCategories []string `json:"selected_categories,omitempty"`
 }
 
 // Validate valida los datos de la solicitud
@@ -32,8 +32,10 @@ func (r *SetupStoreRequest) Validate() error {
 		return err
 	}
 
-	if err := r.validateCategories(); err != nil {
-		return err
+	if len(r.SelectedCategories) > 0 {
+		if err := r.validateCategories(); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -52,9 +54,6 @@ func (r *SetupStoreRequest) validateRequired() error {
 	if strings.TrimSpace(r.StoreSize) == "" {
 		return errors.New("el tamaño de la tienda es requerido")
 	}
-	if len(r.SelectedCategories) == 0 {
-		return errors.New("debe seleccionar al menos una categoría")
-	}
 	return nil
 }
 
@@ -71,26 +70,17 @@ func (r *SetupStoreRequest) validateStoreName() error {
 }
 
 func (r *SetupStoreRequest) validateBusinessType() error {
-	validBusinessTypes := map[string]bool{
-		"home-construction":   true,
-		"fashion":             true,
-		"electronics":         true,
-		"automotive":          true,
-		"books-media":         true,
-		"food-beverage":       true,
-		"health-pharmacy":     true,
-		"sports-fitness":      true,
-		"beauty-cosmetics":    true,
-		"toys-games":          true,
-		"pet-supplies":        true,
-		"office-supplies":     true,
-		"jewelry-accessories": true,
-		"polirubro":           true,
+	// SIMPLIFICADO: La validación real se hace contra el PIM service en el usecase
+	// No necesitamos mantener una lista hardcodeada aquí
+	if strings.TrimSpace(r.BusinessType) == "" {
+		return errors.New("el tipo de negocio es requerido")
 	}
 
-	if !validBusinessTypes[r.BusinessType] {
-		return errors.New("tipo de negocio no válido")
+	// Validación básica de formato
+	if len(r.BusinessType) < 2 || len(r.BusinessType) > 50 {
+		return errors.New("el tipo de negocio debe tener entre 2 y 50 caracteres")
 	}
+
 	return nil
 }
 
@@ -109,32 +99,26 @@ func (r *SetupStoreRequest) validateStoreSize() error {
 
 func (r *SetupStoreRequest) validateCategories() error {
 	if len(r.SelectedCategories) == 0 {
-		return errors.New("debe seleccionar al menos una categoría")
+		return nil
 	}
 
-	// Limitar a máximo 10 categorías
 	if len(r.SelectedCategories) > 10 {
 		return errors.New("no puede seleccionar más de 10 categorías")
 	}
 
-	// Validar que no haya categorías vacías o duplicadas
 	seen := make(map[string]bool)
 	cleanCategories := []string{}
 
 	for _, category := range r.SelectedCategories {
 		clean := strings.TrimSpace(category)
 		if clean == "" {
-			continue // Saltar categorías vacías
+			continue
 		}
 		if seen[clean] {
-			continue // Saltar duplicadas
+			continue
 		}
 		seen[clean] = true
 		cleanCategories = append(cleanCategories, clean)
-	}
-
-	if len(cleanCategories) == 0 {
-		return errors.New("debe seleccionar al menos una categoría válida")
 	}
 
 	r.SelectedCategories = cleanCategories
@@ -161,26 +145,12 @@ func (r *SetupStoreRequest) GetRecommendedPlan() string {
 }
 
 // GetBusinessTypeDisplayName retorna el nombre para mostrar del tipo de negocio
+// SIMPLIFICADO: Solo retorna el business type tal como viene del PIM
 func (r *SetupStoreRequest) GetBusinessTypeDisplayName() string {
-	displayNames := map[string]string{
-		"home-construction":   "Hogar y Construcción",
-		"fashion":             "Moda y Vestimenta",
-		"electronics":         "Electrónicos y Tecnología",
-		"automotive":          "Automotriz y Repuestos",
-		"books-media":         "Libros y Medios",
-		"food-beverage":       "Alimentos y Bebidas",
-		"health-pharmacy":     "Salud y Farmacia",
-		"sports-fitness":      "Deportes y Fitness",
-		"beauty-cosmetics":    "Belleza y Cosméticos",
-		"toys-games":          "Juguetes y Juegos",
-		"pet-supplies":        "Mascotas y Suministros",
-		"office-supplies":     "Oficina y Papelería",
-		"jewelry-accessories": "Joyería y Accesorios",
-		"polirubro":           "Polirubro",
-	}
-
-	if displayName, exists := displayNames[r.BusinessType]; exists {
-		return displayName
+	// El nombre display se obtiene dinámicamente del PIM service
+	// Este método se mantiene por compatibilidad pero ahora es simple
+	if r.BusinessType == "" {
+		return "Tipo de negocio no especificado"
 	}
 	return r.BusinessType
 }

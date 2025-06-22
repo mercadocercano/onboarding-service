@@ -63,23 +63,22 @@ func (uc *SetupStoreUseCase) Execute(req *request.SetupStoreRequest) (*response.
 		return response.NewSetupStoreErrorResponse("Tipo de negocio no válido"), nil
 	}
 
-	// 4. Validar categorías desde PIM
-	categories, err := uc.pimClient.GetCategoriesByBusinessType(req.BusinessType)
-	if err != nil {
-		log.Printf("Error getting categories from PIM: %v", err)
-		return response.NewSetupStoreErrorResponse("Error al obtener categorías"), err
+	// 4. OMITIDO: Validación de categorías - ahora es opcional y se maneja en el backoffice
+	// Las categorías se configurarán después en el backoffice siguiendo la filosofía
+	// "conseguir el registro rápido, luego guiar la configuración completa"
+
+	// 5. Actualizar proceso de onboarding con información básica
+	// Si no hay categorías, pasar array vacío
+	categories := req.SelectedCategories
+	if categories == nil {
+		categories = []string{}
 	}
 
-	if !uc.areValidCategories(req.SelectedCategories, categories) {
-		return response.NewSetupStoreErrorResponse("Una o más categorías seleccionadas no son válidas"), nil
-	}
-
-	// 5. Actualizar proceso de onboarding
 	process.SetStoreConfiguration(
 		req.GetCleanStoreName(),
 		req.BusinessType,
 		req.StoreSize,
-		req.SelectedCategories,
+		categories,
 	)
 
 	// Marcar paso 4 como completado
@@ -101,17 +100,18 @@ func (uc *SetupStoreUseCase) Execute(req *request.SetupStoreRequest) (*response.
 		// No fallar el proceso por esto, solo logear
 	}
 
-	// 7. Preparar configuración PIM para aplicar después (en backoffice)
-	err = uc.preparePIMConfiguration(process.TenantID.String(), req)
+	// 7. Aplicar configuración PIM - vincular business_type con tenant
+	err = uc.applyPIMConfiguration(process.TenantID.String(), req)
 	if err != nil {
-		log.Printf("Error preparing PIM configuration: %v", err)
-		// No fallar el proceso por esto, solo logear
+		log.Printf("Error applying PIM configuration: %v", err)
+		// No fallar el proceso por esto, pero logearlo como error
+		// El tenant queda configurado básicamente, pero sin el setup PIM completo
 	}
 
 	// 8. Preparar respuesta exitosa
 	businessTypeInfo := uc.getBusinessTypeInfo(req.BusinessType, businessTypes)
 
-	log.Printf("Store configured successfully: tenant=%s, store=%s, business_type=%s",
+	log.Printf("Store configured successfully: tenant=%s, store=%s, business_type=%s, categories_deferred=true",
 		process.TenantID.String(), req.StoreName, req.BusinessType)
 
 	return response.NewSetupStoreResponse(
@@ -121,8 +121,8 @@ func (uc *SetupStoreUseCase) Execute(req *request.SetupStoreRequest) (*response.
 		businessTypeInfo,
 		req.StoreSize,
 		req.GetRecommendedPlan(),
-		req.SelectedCategories,
-		5, // Siguiente paso: finalización
+		categories, // Array vacío o categorías si fueron proporcionadas
+		5,          // Siguiente paso: finalización
 	), nil
 }
 
@@ -134,22 +134,6 @@ func (uc *SetupStoreUseCase) isValidBusinessType(businessType string, businessTy
 		}
 	}
 	return false
-}
-
-// areValidCategories valida que todas las categorías existen para el business type
-func (uc *SetupStoreUseCase) areValidCategories(selectedCategories []string, availableCategories []*port.Category) bool {
-	categoryMap := make(map[string]bool)
-	for _, cat := range availableCategories {
-		categoryMap[cat.ID] = true
-		categoryMap[cat.Name] = true // Permitir búsqueda por nombre también
-	}
-
-	for _, selected := range selectedCategories {
-		if !categoryMap[selected] {
-			return false
-		}
-	}
-	return true
 }
 
 // updateTenantInfo actualiza la información del tenant con datos del negocio
@@ -168,16 +152,61 @@ func (uc *SetupStoreUseCase) updateTenantInfo(tenantID string, req *request.Setu
 	return err
 }
 
-// preparePIMConfiguration prepara la configuración PIM para aplicar después
-func (uc *SetupStoreUseCase) preparePIMConfiguration(tenantID string, req *request.SetupStoreRequest) error {
-	// Por ahora solo validamos que el template existe
-	// La aplicación real se hará en el backoffice
-	_, err := uc.pimClient.GetQuickstartTemplate(req.BusinessType)
+// applyPIMConfiguration aplica la configuración PIM para vincular business_type con tenant
+func (uc *SetupStoreUseCase) applyPIMConfiguration(tenantID string, req *request.SetupStoreRequest) error {
+	// 1. Validar que el business_type existe en PIM
+	businessType, err := uc.pimClient.GetBusinessType(req.BusinessType)
 	if err != nil {
-		return fmt.Errorf("template de quickstart no encontrado para %s: %w", req.BusinessType, err)
+		return fmt.Errorf("error validating business type: %w", err)
+	}
+	if businessType == nil {
+		return fmt.Errorf("business type '%s' not found", req.BusinessType)
 	}
 
-	log.Printf("PIM configuration prepared for tenant %s with business type %s", tenantID, req.BusinessType)
+	// 2. Obtener categorías sugeridas para este business type
+	suggestedCategories, err := uc.pimClient.GetCategoriesByBusinessType(req.BusinessType)
+	if err != nil {
+		log.Printf("Warning: Could not get suggested categories for business type %s: %v", req.BusinessType, err)
+		// Continuar con categorías vacías si no se pueden obtener
+		suggestedCategories = []*port.Category{}
+	}
+
+	// 3. Preparar categorías seleccionadas (por ahora usar las sugeridas)
+	selectedCategories := make([]string, 0, len(suggestedCategories))
+	for _, cat := range suggestedCategories {
+		if cat != nil && cat.ID != "" {
+			selectedCategories = append(selectedCategories, cat.ID)
+		}
+	}
+
+	// Limitar a máximo 5 categorías para el setup inicial
+	if len(selectedCategories) > 5 {
+		selectedCategories = selectedCategories[:5]
+	}
+
+	// 4. Crear configuración PIM
+	pimConfig := &port.QuickstartConfig{
+		BusinessType:       req.BusinessType,
+		StoreSize:          "small", // Por defecto pequeña para onboarding
+		SelectedCategories: selectedCategories,
+		// Los atributos y variantes se configurarán después en el backoffice
+		SelectedAttributes:   []string{},
+		SelectedVariants:     []string{},
+		CreateSampleProducts: false, // No crear productos de ejemplo en onboarding
+	}
+
+	// 5. Aplicar la configuración en PIM (vincular business_type con tenant)
+	response, err := uc.pimClient.ApplyQuickstartTemplate(tenantID, pimConfig)
+	if err != nil {
+		return fmt.Errorf("error applying PIM quickstart template: %w", err)
+	}
+
+	log.Printf("PIM configuration applied successfully for tenant %s: %+v", tenantID, response)
+
+	// 6. Log de estadísticas de configuración
+	log.Printf("Business type '%s' linked to tenant %s with %d categories",
+		req.BusinessType, tenantID, len(selectedCategories))
+
 	return nil
 }
 

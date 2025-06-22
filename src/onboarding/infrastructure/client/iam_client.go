@@ -25,6 +25,10 @@ func NewIAMClient() port.IAMClient {
 	baseURL := getEnv("IAM_SERVICE_URL", "http://localhost:8080")
 	superToken := getEnv("IAM_SUPER_ADMIN_TOKEN", "") // Token para operaciones privilegiadas
 
+	log.Printf("=== IAM CLIENT INITIALIZATION ===")
+	log.Printf("Base URL: %s", baseURL)
+	log.Printf("Super token configured: %t", superToken != "")
+
 	return &IAMHTTPClient{
 		baseURL: baseURL,
 		httpClient: &http.Client{
@@ -280,40 +284,67 @@ func (c *IAMHTTPClient) CreateUser(request *port.CreateUserRequest) (*port.UserR
 
 // GetUser obtiene un usuario por ID
 func (c *IAMHTTPClient) GetUser(userID string) (*port.UserResponse, error) {
+	log.Printf("=== IAM CLIENT: GetUser START ===")
+	log.Printf("UserID: %s", userID)
+	log.Printf("Base URL: %s", c.baseURL)
+
 	url := fmt.Sprintf("%s/api/v1/users/%s", c.baseURL, userID)
+	log.Printf("Request URL: %s", url)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
+		log.Printf("ERROR: Failed to create HTTP request: %v", err)
 		return nil, fmt.Errorf("error creating request: %w", err)
 	}
 
 	if c.superToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.superToken)
+		log.Printf("Added authorization header with super token")
+	} else {
+		log.Printf("No super token available")
 	}
 
+	log.Printf("Making HTTP request...")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		log.Printf("ERROR: HTTP request failed: %v", err)
 		return nil, fmt.Errorf("error making request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	log.Printf("HTTP response status: %d %s", resp.StatusCode, resp.Status)
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		log.Printf("ERROR: Failed to read response body: %v", err)
 		return nil, fmt.Errorf("error reading response: %w", err)
 	}
 
+	log.Printf("Response body: %s", string(body))
+	log.Printf("Response size: %d bytes", len(body))
+
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("ERROR: Non-success status code received")
+		log.Printf("=== IAM CLIENT: GetUser END (STATUS ERROR) ===")
 		return nil, fmt.Errorf("IAM service error: %s (status: %d)", string(body), resp.StatusCode)
 	}
 
-	var result struct {
-		User *port.UserResponse `json:"user"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
+	log.Printf("Parsing response JSON...")
+	var user port.UserResponse
+	if err := json.Unmarshal(body, &user); err != nil {
+		log.Printf("ERROR: Failed to parse JSON response: %v", err)
+		log.Printf("=== IAM CLIENT: GetUser END (PARSE ERROR) ===")
 		return nil, fmt.Errorf("error unmarshaling response: %w", err)
 	}
 
-	return result.User, nil
+	log.Printf("JSON parsed successfully")
+	log.Printf("User found:")
+	log.Printf("  - ID: %s", user.ID)
+	log.Printf("  - Email: %s", user.Email)
+	log.Printf("  - Name: %s", user.Name)
+	log.Printf("=== IAM CLIENT: GetUser END (SUCCESS) ===")
+
+	return &user, nil
 }
 
 // UpdateUser actualiza un usuario

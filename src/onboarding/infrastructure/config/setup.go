@@ -3,6 +3,7 @@ package config
 import (
 	"database/sql"
 	"log"
+	"os"
 
 	"github.com/gin-gonic/gin"
 
@@ -16,13 +17,22 @@ import (
 func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 	log.Println("Setting up Onboarding module...")
 
-	// 1. Inicializar repositorios
-	onboardingRepo := persistence.NewPostgresOnboardingRepository(db)
-
-	// 2. Inicializar clientes externos
+	// 1. Inicializar clientes externos
 	iamClient := client.NewIAMClient()
 	pimClient := client.NewPIMClient()
-	notificationClient := client.NewNotificationClient()
+
+	// Obtener URL del servicio de notificaciones desde variable de entorno
+	notificationServiceURL := os.Getenv("NOTIFICATION_SERVICE_URL")
+	if notificationServiceURL == "" {
+		notificationServiceURL = "http://localhost:8282" // fallback para desarrollo local
+	}
+	notificationServiceURL += "/api/v1" // agregar path de la API
+
+	log.Printf("Using notification service URL: %s", notificationServiceURL)
+	notificationClient := client.NewNotificationClient(notificationServiceURL)
+
+	// 2. Inicializar repositorios
+	onboardingRepo := persistence.NewPostgresOnboardingRepository(db)
 
 	// 3. Inicializar casos de uso
 	startOnboardingUseCase := usecase.NewStartOnboardingUseCase(onboardingRepo)
@@ -30,6 +40,8 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 	verifyEmailUseCase := usecase.NewVerifyEmailUseCase(onboardingRepo, iamClient)
 	resendVerificationUseCase := usecase.NewResendVerificationUseCase(onboardingRepo, notificationClient)
 	setupStoreUseCase := usecase.NewSetupStoreUseCase(onboardingRepo, pimClient, iamClient)
+	selectPlanUseCase := usecase.NewSelectPlanUseCase(onboardingRepo)
+	completeOnboardingUseCase := usecase.NewCompleteOnboardingUseCase(onboardingRepo, notificationClient, iamClient)
 	getProcessStatusUseCase := usecase.NewGetProcessStatusUseCase(onboardingRepo)
 
 	// 4. Inicializar controladores
@@ -39,6 +51,8 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 		verifyEmailUseCase,
 		resendVerificationUseCase,
 		setupStoreUseCase,
+		selectPlanUseCase,
+		completeOnboardingUseCase,
 		getProcessStatusUseCase,
 		pimClient,
 		onboardingRepo,
@@ -61,6 +75,7 @@ func setupRoutes(router *gin.RouterGroup, controller *controller.OnboardingContr
 		onboardingGroup.POST("/verify-email", controller.VerifyEmail)
 		onboardingGroup.POST("/resend-verification", controller.ResendVerificationEmail)
 		onboardingGroup.POST("/setup-store", controller.SetupStore)
+		onboardingGroup.POST("/select-plan", controller.SelectPlan)
 		onboardingGroup.POST("/complete", controller.CompleteOnboarding)
 
 		// Rutas de información y configuración
@@ -78,6 +93,7 @@ func setupRoutes(router *gin.RouterGroup, controller *controller.OnboardingContr
 	log.Println("  POST /api/v1/onboarding/verify-email")
 	log.Println("  POST /api/v1/onboarding/resend-verification")
 	log.Println("  POST /api/v1/onboarding/setup-store")
+	log.Println("  POST /api/v1/onboarding/select-plan")
 	log.Println("  POST /api/v1/onboarding/complete")
 	log.Println("  GET  /api/v1/onboarding/business-types")
 	log.Println("  GET  /api/v1/onboarding/categories")

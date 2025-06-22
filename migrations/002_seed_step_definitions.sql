@@ -27,9 +27,14 @@ INSERT INTO onboarding_step_definitions (
     true, true, true, false, 4, true, NOW(), NOW()
 ),
 (
-    gen_random_uuid(), 5, 'completar', 'Finalizar', 
-    'Completar onboarding y redirección', 
+    gen_random_uuid(), 5, 'elegir-plan', 'Elegir Plan', 
+    'Elegir el plan de la tienda', 
     true, true, false, false, 5, true, NOW(), NOW()
+),
+(
+    gen_random_uuid(), 6, 'completar', 'Finalizar', 
+    'Completar onboarding y redirección', 
+    true, true, false, false, 6, true, NOW(), NOW()
 )
 ON CONFLICT (step_number) DO UPDATE SET
     step_name = EXCLUDED.step_name,

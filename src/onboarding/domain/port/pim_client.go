@@ -20,17 +20,40 @@ type PIMClient interface {
 }
 
 // BusinessType representa un tipo de negocio en PIM
+// ACTUALIZADO: Para mapear correctamente la respuesta REAL del PIM Service
 type BusinessType struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Icon        string `json:"icon"`
-	IsActive    bool   `json:"is_active"`
+	// Campos principales que devuelve el PIM Service
+	ID          string `json:"id"`          // ID funcional (retail, food-beverage, etc.)
+	Name        string `json:"name"`        // Nombre para mostrar
+	Description string `json:"description"` // Descripción del tipo de negocio
+	Icon        string `json:"icon"`        // Icono para la UI
+
+	// Timestamps en camelCase como devuelve el PIM real
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+
+	// Campos adicionales opcionales (no siempre presentes en respuesta del PIM)
+	Color     string `json:"color,omitempty"`      // Color para la UI
+	IsActive  bool   `json:"is_active,omitempty"`  // Si está activo
+	SortOrder int    `json:"sort_order,omitempty"` // Orden de visualización
+
+	// Campos de estructura interna para responses del onboarding (agregados por este servicio)
+	DefaultAttributes []string `json:"default_attributes,omitempty"`
+	DefaultCategories []string `json:"default_categories,omitempty"`
+	DefaultVariants   []string `json:"default_variants,omitempty"`
 
 	// Metadata adicional
-	DefaultCategories []string `json:"default_categories"`
-	DefaultAttributes []string `json:"default_attributes"`
-	DefaultVariants   []string `json:"default_variants"`
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// GetID retorna el ID funcional
+func (bt *BusinessType) GetID() string {
+	return bt.ID
+}
+
+// GetBusinessTypeCode retorna el código funcional
+func (bt *BusinessType) GetBusinessTypeCode() string {
+	return bt.ID
 }
 
 // Category representa una categoría de productos

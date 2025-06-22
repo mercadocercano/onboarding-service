@@ -18,6 +18,8 @@ type OnboardingController struct {
 	verifyEmailUseCase        *usecase.VerifyEmailUseCase
 	resendVerificationUseCase *usecase.ResendVerificationUseCase
 	setupStoreUseCase         *usecase.SetupStoreUseCase
+	selectPlanUseCase         *usecase.SelectPlanUseCase
+	completeOnboardingUseCase *usecase.CompleteOnboardingUseCase
 	getProcessStatusUseCase   *usecase.GetProcessStatusUseCase
 	pimClient                 port.PIMClient
 	onboardingRepo            port.OnboardingRepository
@@ -30,6 +32,8 @@ func NewOnboardingController(
 	verifyEmailUseCase *usecase.VerifyEmailUseCase,
 	resendVerificationUseCase *usecase.ResendVerificationUseCase,
 	setupStoreUseCase *usecase.SetupStoreUseCase,
+	selectPlanUseCase *usecase.SelectPlanUseCase,
+	completeOnboardingUseCase *usecase.CompleteOnboardingUseCase,
 	getProcessStatusUseCase *usecase.GetProcessStatusUseCase,
 	pimClient port.PIMClient,
 	onboardingRepo port.OnboardingRepository,
@@ -40,6 +44,8 @@ func NewOnboardingController(
 		verifyEmailUseCase:        verifyEmailUseCase,
 		resendVerificationUseCase: resendVerificationUseCase,
 		setupStoreUseCase:         setupStoreUseCase,
+		selectPlanUseCase:         selectPlanUseCase,
+		completeOnboardingUseCase: completeOnboardingUseCase,
 		getProcessStatusUseCase:   getProcessStatusUseCase,
 		pimClient:                 pimClient,
 		onboardingRepo:            onboardingRepo,
@@ -112,23 +118,88 @@ func (c *OnboardingController) SetupStore(ctx *gin.Context) {
 	ctx.JSON(statusCode, response)
 }
 
-// GetBusinessTypes obtiene los tipos de negocio desde PIM (GET /api/v1/onboarding/business-types)
-func (c *OnboardingController) GetBusinessTypes(ctx *gin.Context) {
-	businessTypes, err := c.pimClient.GetBusinessTypes()
-	if err != nil {
-		log.Printf("Error getting business types: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
+// SelectPlan maneja la selección de plan (POST /api/v1/onboarding/select-plan)
+func (c *OnboardingController) SelectPlan(ctx *gin.Context) {
+	var req request.SelectPlanRequest
+
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		log.Printf("Error binding JSON: %v", err)
+		ctx.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "Error al obtener tipos de negocio",
+			"message": "Datos inválidos en la solicitud",
 			"error":   err.Error(),
 		})
 		return
 	}
 
+	response, err := c.selectPlanUseCase.Execute(&req)
+	if err != nil {
+		log.Printf("Error in SelectPlan usecase: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Error interno del servidor",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	statusCode := http.StatusOK
+	if !response.Success {
+		statusCode = http.StatusBadRequest
+	}
+
+	ctx.JSON(statusCode, response)
+}
+
+// GetBusinessTypes obtiene todos los tipos de negocio disponibles desde PIM
+func (c *OnboardingController) GetBusinessTypes(ctx *gin.Context) {
+	businessTypes, err := c.pimClient.GetBusinessTypes()
+	if err != nil {
+		log.Printf("Error obtaining business types from PIM: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Error interno del servidor",
+		})
+		return
+	}
+
+	// DEBUG: Verificar qué llega desde el PIM
+	log.Printf("DEBUG: Número de business types recibidos: %d", len(businessTypes))
+	if len(businessTypes) > 0 {
+		log.Printf("DEBUG: Primer business type raw: ID='%s', Name='%s', Icon='%s'",
+			businessTypes[0].ID, businessTypes[0].Name, businessTypes[0].Icon)
+	}
+
+	// Transformar structure del PIM a estructura de respuesta usando el ID directamente
+	transformedBusinessTypes := make([]map[string]interface{}, len(businessTypes))
+	for i, bt := range businessTypes {
+		// DEBUG: Log cada business type antes de transformar
+		log.Printf("DEBUG: BT[%d] - ID='%s', Name='%s', Icon='%s'", i, bt.ID, bt.Name, bt.Icon)
+
+		transformedBusinessTypes[i] = map[string]interface{}{
+			"id":          bt.ID, // Usar el campo ID directamente (retail, food-beverage, etc.)
+			"name":        bt.Name,
+			"description": bt.Description,
+			"icon":        bt.Icon,
+			"color":       bt.Color,     // Color del PIM
+			"is_active":   bt.IsActive,  // Estado del PIM
+			"sort_order":  bt.SortOrder, // Orden del PIM
+			"created_at":  bt.CreatedAt, // Timestamp del PIM (ahora mapeado como camelCase)
+			"updated_at":  bt.UpdatedAt, // Timestamp del PIM (ahora mapeado como camelCase)
+
+			// Campos adicionales vacíos para compatibilidad
+			"default_categories": []string{},
+			"default_attributes": []string{},
+			"default_variants":   []string{},
+		}
+	}
+
+	log.Printf("Retrieved and transformed %d business types from PIM service", len(transformedBusinessTypes))
+
 	ctx.JSON(http.StatusOK, gin.H{
 		"success":        true,
+		"business_types": transformedBusinessTypes,
 		"message":        "Tipos de negocio obtenidos exitosamente",
-		"business_types": businessTypes,
 	})
 }
 
@@ -194,28 +265,35 @@ func (c *OnboardingController) GetProcessStatus(ctx *gin.Context) {
 
 // CompleteOnboarding marca el onboarding como completado (POST /api/v1/onboarding/complete)
 func (c *OnboardingController) CompleteOnboarding(ctx *gin.Context) {
-	var req struct {
-		ProcessID string `json:"process_id" binding:"required"`
-	}
+	var req request.CompleteOnboardingRequest
 
 	if err := ctx.ShouldBindJSON(&req); err != nil {
+		log.Printf("Error binding JSON: %v", err)
 		ctx.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "ID de proceso requerido",
+			"message": "Datos inválidos en la solicitud",
 			"error":   err.Error(),
 		})
 		return
 	}
 
-	// TODO: Implementar usecase para completar onboarding
-	ctx.JSON(http.StatusOK, gin.H{
-		"success":        true,
-		"message":        "Onboarding completado exitosamente",
-		"process_id":     req.ProcessID,
-		"completed":      true,
-		"backoffice_url": "/backoffice/dashboard",
-		"next_steps":     []string{"Configurar catálogo", "Personalizar tienda", "Añadir productos"},
-	})
+	response, err := c.completeOnboardingUseCase.Execute(&req)
+	if err != nil {
+		log.Printf("Error in CompleteOnboarding usecase: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Error interno del servidor",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	statusCode := http.StatusOK
+	if !response.Success {
+		statusCode = http.StatusBadRequest
+	}
+
+	ctx.JSON(statusCode, response)
 }
 
 // GetStepDefinitions obtiene las definiciones de pasos (GET /api/v1/onboarding/steps)

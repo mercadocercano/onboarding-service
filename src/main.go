@@ -1,5 +1,7 @@
 package main
 
+// FORCE REBUILD: 2025-06-20 19:30 - Debug business types mapping issue
+
 import (
 	"database/sql"
 	"log"
@@ -118,7 +120,7 @@ func getEnv(key, defaultValue string) string {
 func runMigrations(db *sql.DB) error {
 	migrationsPath := migration.GetMigrationsPath()
 	log.Printf("Using migrations path: %s", migrationsPath)
-	
+
 	migrator := migration.NewMigrator(db, migrationsPath)
 	return migrator.RunMigrations()
 }

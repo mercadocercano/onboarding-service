@@ -55,12 +55,50 @@ func (c *PIMHTTPClient) GetBusinessTypes() ([]*port.BusinessType, error) {
 		return nil, fmt.Errorf("PIM service error: %s (status: %d)", string(body), resp.StatusCode)
 	}
 
+	// DEBUG: Log the raw response to understand the structure
+	log.Printf("DEBUG: PIM service raw response: %s", string(body))
+
+	// Intentar unmarshal directo del array primero
 	var businessTypes []*port.BusinessType
 	if err := json.Unmarshal(body, &businessTypes); err != nil {
-		return nil, fmt.Errorf("error unmarshaling response: %w", err)
+		log.Printf("DEBUG: Direct array unmarshal failed: %v", err)
+
+		// Si falla, intentar con wrapper object
+		var result struct {
+			BusinessTypes []*port.BusinessType `json:"business_types"`
+			Data          []*port.BusinessType `json:"data"`
+			Items         []*port.BusinessType `json:"items"`
+		}
+
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, fmt.Errorf("error unmarshaling response (both formats): %w", err)
+		}
+
+		// Determinar qué campo contiene los datos
+		if len(result.BusinessTypes) > 0 {
+			businessTypes = result.BusinessTypes
+			log.Printf("DEBUG: Used 'business_types' field")
+		} else if len(result.Data) > 0 {
+			businessTypes = result.Data
+			log.Printf("DEBUG: Used 'data' field")
+		} else if len(result.Items) > 0 {
+			businessTypes = result.Items
+			log.Printf("DEBUG: Used 'items' field")
+		} else {
+			return nil, fmt.Errorf("no business types found in response")
+		}
+	} else {
+		log.Printf("DEBUG: Direct array unmarshal succeeded")
 	}
 
 	log.Printf("Retrieved %d business types from PIM service", len(businessTypes))
+
+	// DEBUG: Log first business type to verify mapping
+	if len(businessTypes) > 0 {
+		log.Printf("DEBUG: First business type - ID: %s, Name: %s, IsActive: %v",
+			businessTypes[0].ID, businessTypes[0].Name, businessTypes[0].IsActive)
+	}
+
 	return businessTypes, nil
 }
 
@@ -203,14 +241,20 @@ func (c *PIMHTTPClient) GetCategory(categoryID string) (*port.Category, error) {
 
 // ApplyQuickstartTemplate aplica un template de configuración rápida
 func (c *PIMHTTPClient) ApplyQuickstartTemplate(tenantID string, config *port.QuickstartConfig) (*port.QuickstartResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/quickstart/apply", c.baseURL)
+	url := fmt.Sprintf("%s/api/v1/quickstart/setup", c.baseURL)
 
 	requestData := struct {
-		TenantID string                 `json:"tenant_id"`
-		Config   *port.QuickstartConfig `json:"config"`
+		BusinessType       string   `json:"businessType"`
+		SelectedCategories []string `json:"selectedCategories"`
+		SelectedAttributes []string `json:"selectedAttributes,omitempty"`
+		SelectedVariants   []string `json:"selectedVariants,omitempty"`
+		SelectedProducts   []string `json:"selectedProducts,omitempty"`
 	}{
-		TenantID: tenantID,
-		Config:   config,
+		BusinessType:       config.BusinessType,
+		SelectedCategories: config.SelectedCategories,
+		SelectedAttributes: config.SelectedAttributes,
+		SelectedVariants:   config.SelectedVariants,
+		SelectedProducts:   []string{},
 	}
 
 	jsonData, err := json.Marshal(requestData)
@@ -224,8 +268,9 @@ func (c *PIMHTTPClient) ApplyQuickstartTemplate(tenantID string, config *port.Qu
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	// TODO: Agregar header de tenant-id cuando esté implementado
 	req.Header.Set("X-Tenant-ID", tenantID)
+
+	log.Printf("Calling PIM setup endpoint: %s for tenant %s with business type %s", url, tenantID, config.BusinessType)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -238,17 +283,39 @@ func (c *PIMHTTPClient) ApplyQuickstartTemplate(tenantID string, config *port.Qu
 		return nil, fmt.Errorf("error reading response: %w", err)
 	}
 
+	log.Printf("PIM setup response status: %d, body: %s", resp.StatusCode, string(body))
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return nil, fmt.Errorf("PIM service error: %s (status: %d)", string(body), resp.StatusCode)
 	}
 
-	var quickstartResponse port.QuickstartResponse
-	if err := json.Unmarshal(body, &quickstartResponse); err != nil {
+	var pimResponse struct {
+		ID           string `json:"id"`
+		TenantID     string `json:"tenantId"`
+		BusinessType string `json:"businessType"`
+		Status       string `json:"status"`
+		SetupData    string `json:"setupData"`
+		CreatedAt    string `json:"createdAt"`
+		UpdatedAt    string `json:"updatedAt"`
+	}
+
+	if err := json.Unmarshal(body, &pimResponse); err != nil {
 		return nil, fmt.Errorf("error unmarshaling response: %w", err)
 	}
 
-	log.Printf("Quickstart template applied successfully for tenant %s", tenantID)
-	return &quickstartResponse, nil
+	quickstartResponse := &port.QuickstartResponse{
+		Success:           pimResponse.Status == "COMPLETED",
+		Message:           fmt.Sprintf("Business type setup completed for tenant %s", tenantID),
+		TenantID:          pimResponse.TenantID,
+		TemplateID:        pimResponse.BusinessType,
+		CategoriesCreated: len(config.SelectedCategories),
+		AttributesCreated: len(config.SelectedAttributes),
+		VariantsCreated:   len(config.SelectedVariants),
+		ProductsCreated:   0,
+	}
+
+	log.Printf("Quickstart template applied successfully for tenant %s with business type %s", tenantID, config.BusinessType)
+	return quickstartResponse, nil
 }
 
 // GetQuickstartTemplate obtiene un template de quickstart

@@ -23,10 +23,11 @@ type SetupStoreResponse struct {
 
 // StoreData contiene información de la tienda configurada
 type StoreData struct {
-	Name               string            `json:"name"`
-	BusinessType       *BusinessTypeInfo `json:"business_type"`
-	StoreSize          string            `json:"store_size"`
-	SelectedCategories []string          `json:"selected_categories"`
+	Name         string            `json:"name"`
+	BusinessType *BusinessTypeInfo `json:"business_type"`
+	StoreSize    string            `json:"store_size"`
+	// Categorías opcionales - se configurarán en el backoffice si están vacías
+	SelectedCategories []string `json:"selected_categories,omitempty"`
 }
 
 // BusinessTypeInfo contiene información del tipo de negocio
@@ -45,16 +46,27 @@ func NewSetupStoreResponse(
 	selectedCategories []string,
 	nextStep int,
 ) *SetupStoreResponse {
+	// Si no hay categorías, no las incluir en la respuesta (omitempty las ocultará)
+	categories := selectedCategories
+	if len(categories) == 0 {
+		categories = nil // omitempty ocultará este campo
+	}
+
 	storeData := StoreData{
 		Name:               storeName,
 		BusinessType:       businessType,
 		StoreSize:          storeSize,
-		SelectedCategories: selectedCategories,
+		SelectedCategories: categories,
+	}
+
+	message := "Tienda configurada exitosamente"
+	if len(selectedCategories) == 0 {
+		message = "Tienda configurada exitosamente. Las categorías se configurarán en el backoffice."
 	}
 
 	return &SetupStoreResponse{
 		Success:         true,
-		Message:         "Tienda configurada exitosamente",
+		Message:         message,
 		ProcessID:       processID,
 		TenantID:        tenantID,
 		NextStep:        nextStep,
