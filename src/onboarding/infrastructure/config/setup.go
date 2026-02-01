@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -24,9 +25,12 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 	// Obtener URL del servicio de notificaciones desde variable de entorno
 	notificationServiceURL := os.Getenv("NOTIFICATION_SERVICE_URL")
 	if notificationServiceURL == "" {
-		notificationServiceURL = "http://localhost:8282" // fallback para desarrollo local
+		notificationServiceURL = "http://localhost:8282/api/v1" // fallback para desarrollo local
 	}
-	notificationServiceURL += "/api/v1" // agregar path de la API
+	// Solo agregar /api/v1 si no está ya incluido
+	if !strings.Contains(notificationServiceURL, "/api/v1") {
+		notificationServiceURL += "/api/v1"
+	}
 
 	log.Printf("Using notification service URL: %s", notificationServiceURL)
 	notificationClient := client.NewNotificationClient(notificationServiceURL)

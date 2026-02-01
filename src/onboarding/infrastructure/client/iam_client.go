@@ -447,17 +447,24 @@ func (c *IAMHTTPClient) GetRoleByType(roleType string) (*port.RoleResponse, erro
 	}
 
 	var result struct {
-		Roles []*port.RoleResponse `json:"roles"`
+		Items []*port.RoleResponse `json:"items"`
+		Roles []*port.RoleResponse `json:"roles"` // Backward compatibility
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("error unmarshaling response: %w", err)
 	}
 
-	if len(result.Roles) == 0 {
+	// Try items first, then roles for backward compatibility
+	roles := result.Items
+	if len(roles) == 0 {
+		roles = result.Roles
+	}
+
+	if len(roles) == 0 {
 		return nil, fmt.Errorf("role type %s not found", roleType)
 	}
 
-	return result.Roles[0], nil
+	return roles[0], nil
 }
 
 // GetRoles obtiene todos los roles
@@ -489,12 +496,17 @@ func (c *IAMHTTPClient) GetRoles() ([]*port.RoleResponse, error) {
 	}
 
 	var result struct {
-		Roles []*port.RoleResponse `json:"roles"`
+		Items []*port.RoleResponse `json:"items"`
+		Roles []*port.RoleResponse `json:"roles"` // Backward compatibility
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("error unmarshaling response: %w", err)
 	}
 
+	// Try items first, then roles for backward compatibility
+	if len(result.Items) > 0 {
+		return result.Items, nil
+	}
 	return result.Roles, nil
 }
 
