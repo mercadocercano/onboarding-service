@@ -30,6 +30,16 @@ func NewNotificationClient(baseURL string) port.NotificationClient {
 
 // GenerateVerificationCode genera un código de verificación de 6 dígitos
 func GenerateVerificationCode() string {
+	// Modo de testing: usar código fijo para tests automatizados
+	// Variable de entorno: TESTING_MODE=true o BYPASS_EMAIL_VERIFICATION=true
+	testingMode := getEnv("TESTING_MODE", "false")
+	bypassVerification := getEnv("BYPASS_EMAIL_VERIFICATION", "false")
+	
+	if testingMode == "true" || bypassVerification == "true" {
+		log.Printf("⚠️ TESTING MODE: Using fixed verification code 123456")
+		return "123456"
+	}
+
 	// Generar un número aleatorio de 6 dígitos (100000-999999)
 	min := int64(100000)
 	max := int64(999999)
@@ -38,6 +48,7 @@ func GenerateVerificationCode() string {
 	n, err := rand.Int(rand.Reader, big.NewInt(max-min+1))
 	if err != nil {
 		// Fallback a código por defecto si hay error
+		log.Printf("⚠️ Error generating random code, using fallback: 123456")
 		return "123456"
 	}
 

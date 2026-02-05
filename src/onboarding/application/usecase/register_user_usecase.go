@@ -124,7 +124,25 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 
 	log.Printf("User registered successfully: email=%s, tenant=%s, user=%s", req.Email, tenant.ID, user.ID)
 
-	return response.NewRegisterUserResponse(processIDStr, tenant.ID, user.ID, userData, tenantData), nil
+	// 9. *** NUEVO: Hacer login automático para obtener access_token ***
+	var accessToken string
+	loginReq := &port.LoginRequest{
+		Email:    req.GetCleanEmail(),
+		Password: req.Password, // Usar el password del request original
+		Provider: "LOCAL",
+	}
+
+	loginResp, err := uc.iamClient.Login(loginReq)
+	if err != nil {
+		log.Printf("Warning: Could not auto-login user after registration: %v", err)
+		// No fallar el registro por esto, solo logear el warning
+		accessToken = "" // Token vacío si falla el login
+	} else {
+		accessToken = loginResp.AccessToken
+		log.Printf("User auto-logged in successfully with token")
+	}
+
+	return response.NewRegisterUserResponse(processIDStr, tenant.ID, user.ID, accessToken, userData, tenantData), nil
 }
 
 // saveVerificationCode guarda el código de verificación en la base de datos

@@ -35,6 +35,15 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 	log.Printf("Using notification service URL: %s", notificationServiceURL)
 	notificationClient := client.NewNotificationClient(notificationServiceURL)
 
+	// Obtener URL del servicio de tenant desde variable de entorno
+	tenantServiceURL := os.Getenv("TENANT_SERVICE_URL")
+	if tenantServiceURL == "" {
+		tenantServiceURL = "http://localhost:8120" // fallback para desarrollo local
+	}
+
+	log.Printf("Using tenant service URL: %s", tenantServiceURL)
+	tenantClient := client.NewTenantClient(tenantServiceURL)
+
 	// 2. Inicializar repositorios
 	onboardingRepo := persistence.NewPostgresOnboardingRepository(db)
 
@@ -45,7 +54,7 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 	resendVerificationUseCase := usecase.NewResendVerificationUseCase(onboardingRepo, notificationClient)
 	setupStoreUseCase := usecase.NewSetupStoreUseCase(onboardingRepo, pimClient, iamClient)
 	selectPlanUseCase := usecase.NewSelectPlanUseCase(onboardingRepo)
-	completeOnboardingUseCase := usecase.NewCompleteOnboardingUseCase(onboardingRepo, notificationClient, iamClient)
+	completeOnboardingUseCase := usecase.NewCompleteOnboardingUseCase(onboardingRepo, notificationClient, iamClient, tenantClient)
 	getProcessStatusUseCase := usecase.NewGetProcessStatusUseCase(onboardingRepo)
 
 	// 4. Inicializar controladores

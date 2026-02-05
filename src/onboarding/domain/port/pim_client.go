@@ -23,14 +23,15 @@ type PIMClient interface {
 // ACTUALIZADO: Para mapear correctamente la respuesta REAL del PIM Service
 type BusinessType struct {
 	// Campos principales que devuelve el PIM Service
-	ID          string `json:"id"`          // ID funcional (retail, food-beverage, etc.)
+	ID          string `json:"id"`          // UUID del business type
+	Code        string `json:"code"`        // Código funcional (retail, almacen, etc.)
 	Name        string `json:"name"`        // Nombre para mostrar
 	Description string `json:"description"` // Descripción del tipo de negocio
 	Icon        string `json:"icon"`        // Icono para la UI
 
 	// Timestamps en camelCase como devuelve el PIM real
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 
 	// Campos adicionales opcionales (no siempre presentes en respuesta del PIM)
 	Color     string `json:"color,omitempty"`      // Color para la UI

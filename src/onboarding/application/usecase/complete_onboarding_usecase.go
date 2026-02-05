@@ -18,14 +18,21 @@ type CompleteOnboardingUseCase struct {
 	onboardingRepo     port.OnboardingRepository
 	notificationClient port.NotificationClient
 	iamClient          port.IAMClient
+	tenantClient       port.TenantClient
 }
 
 // NewCompleteOnboardingUseCase crea una nueva instancia del caso de uso
-func NewCompleteOnboardingUseCase(onboardingRepo port.OnboardingRepository, notificationClient port.NotificationClient, iamClient port.IAMClient) *CompleteOnboardingUseCase {
+func NewCompleteOnboardingUseCase(
+	onboardingRepo port.OnboardingRepository,
+	notificationClient port.NotificationClient,
+	iamClient port.IAMClient,
+	tenantClient port.TenantClient,
+) *CompleteOnboardingUseCase {
 	return &CompleteOnboardingUseCase{
 		onboardingRepo:     onboardingRepo,
 		notificationClient: notificationClient,
 		iamClient:          iamClient,
+		tenantClient:       tenantClient,
 	}
 }
 
@@ -75,6 +82,7 @@ func (uc *CompleteOnboardingUseCase) Execute(req *request.CompleteOnboardingRequ
 			process.SelectedCategories,
 			process.StepsCompleted,
 			process.StartedAt,
+			"", // Token vacío para procesos ya completados
 		), nil
 	}
 
@@ -98,10 +106,28 @@ func (uc *CompleteOnboardingUseCase) Execute(req *request.CompleteOnboardingRequ
 
 	log.Printf("Onboarding completed successfully for process: %s at %v", req.ProcessID, now)
 
-	// 7. Enviar correo de bienvenida
+	// 7. Bootstrap tenant config (best-effort, no bloquea onboarding)
+	uc.bootstrapTenantConfigAsync(process)
+
+	// 8. Enviar correo de bienvenida
 	uc.sendWelcomeEmailAsync(process)
 
-	// 8. Crear respuesta exitosa con resumen
+	// 9. Generar access token para el usuario (si el usuario no lo tiene ya)
+	var accessToken string
+	user, err := uc.iamClient.GetUser(process.UserID.String())
+	if err != nil {
+		log.Printf("Warning: Could not get user for token generation: %v", err)
+		accessToken = "" // Token vacío si no se puede obtener el usuario
+	} else if user != nil {
+		// Nota: Como no tenemos el password aquí, el token ya debería haber sido
+		// generado en el paso de registro. Esto es solo un fallback.
+		// En una implementación completa, esto requeriría un endpoint especial
+		// en el IAM service para generar tokens sin password.
+		log.Printf("User retrieved, but token generation requires password (should have been generated at registration)")
+		accessToken = "" // Por ahora dejamos vacío, el test debe usar el token del registro
+	}
+
+	// 10. Crear respuesta exitosa con resumen
 	return response.NewCompleteOnboardingResponse(
 		req.ProcessID,
 		process.TenantID.String(),
@@ -111,7 +137,49 @@ func (uc *CompleteOnboardingUseCase) Execute(req *request.CompleteOnboardingRequ
 		process.SelectedCategories,
 		process.StepsCompleted,
 		process.StartedAt,
+		accessToken,
 	), nil
+}
+
+// bootstrapTenantConfigAsync inicializa la configuración del tenant de forma asíncrona
+// Esta operación es best-effort: no bloquea el onboarding si falla
+func (uc *CompleteOnboardingUseCase) bootstrapTenantConfigAsync(process *entity.OnboardingProcess) {
+	log.Printf("=== BOOTSTRAP TENANT CONFIG PROCESS START ===")
+	log.Printf("Checking tenant client availability...")
+	log.Printf("TenantClient is nil: %t", uc.tenantClient == nil)
+
+	if uc.tenantClient != nil {
+		log.Printf("Tenant client available, starting bootstrap process asynchronously...")
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("PANIC recovered in bootstrap tenant config goroutine: %v", r)
+				}
+			}()
+
+			log.Printf("=== ASYNC BOOTSTRAP TENANT CONFIG GOROUTINE START ===")
+			ctx := context.Background()
+
+			log.Printf("Attempting to bootstrap tenant config for TenantID: %s", process.TenantID.String())
+
+			err := uc.tenantClient.BootstrapTenantConfig(ctx, process.TenantID.String())
+			if err != nil {
+				log.Printf("WARNING: Failed to bootstrap tenant config (best-effort, continuing)")
+				log.Printf("  - TenantID: %s", process.TenantID.String())
+				log.Printf("  - Error type: %T", err)
+				log.Printf("  - Error message: %v", err)
+			} else {
+				log.Printf("SUCCESS: Tenant config bootstrapped successfully")
+				log.Printf("  - TenantID: %s", process.TenantID.String())
+			}
+
+			log.Printf("=== ASYNC BOOTSTRAP TENANT CONFIG GOROUTINE END ===")
+		}()
+	} else {
+		log.Printf("WARNING: Cannot bootstrap tenant config - TenantClient is nil")
+	}
+
+	log.Printf("=== BOOTSTRAP TENANT CONFIG PROCESS END (main thread) ===")
 }
 
 // sendWelcomeEmailAsync envía el correo de bienvenida de forma asíncrona

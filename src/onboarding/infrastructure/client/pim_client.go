@@ -33,7 +33,7 @@ func NewPIMClient() port.PIMClient {
 
 // GetBusinessTypes obtiene todos los tipos de negocio
 func (c *PIMHTTPClient) GetBusinessTypes() ([]*port.BusinessType, error) {
-	url := fmt.Sprintf("%s/api/v1/quickstart/business-types", c.baseURL)
+	url := fmt.Sprintf("%s/api/v1/business-types", c.baseURL)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -104,7 +104,7 @@ func (c *PIMHTTPClient) GetBusinessTypes() ([]*port.BusinessType, error) {
 
 // GetBusinessType obtiene un tipo de negocio específico
 func (c *PIMHTTPClient) GetBusinessType(businessTypeID string) (*port.BusinessType, error) {
-	url := fmt.Sprintf("%s/api/v1/quickstart/business-types/%s", c.baseURL, businessTypeID)
+	url := fmt.Sprintf("%s/api/v1/business-types/%s", c.baseURL, businessTypeID)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {

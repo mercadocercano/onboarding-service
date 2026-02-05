@@ -15,6 +15,9 @@ type CompleteOnboardingResponse struct {
 	CompletedAt time.Time `json:"completed_at"`
 	TenantID    string    `json:"tenant_id"`
 
+	// Autenticación
+	AccessToken string `json:"access_token,omitempty"` // JWT token para acceso al backoffice
+
 	// URLs y próximos pasos
 	BackofficeURL string   `json:"backoffice_url"`
 	NextSteps     []string `json:"next_steps"`
@@ -43,6 +46,7 @@ func NewCompleteOnboardingResponse(
 	selectedCategories []string,
 	stepsCompleted []int,
 	startedAt time.Time,
+	accessToken string,
 ) *CompleteOnboardingResponse {
 	now := time.Now()
 	durationMinutes := int(now.Sub(startedAt).Minutes())
@@ -65,6 +69,7 @@ func NewCompleteOnboardingResponse(
 		Completed:     true,
 		CompletedAt:   now,
 		TenantID:      tenantID,
+		AccessToken:   accessToken,
 		BackofficeURL: "/backoffice/dashboard",
 		NextSteps: []string{
 			"Configurar catálogo de productos",

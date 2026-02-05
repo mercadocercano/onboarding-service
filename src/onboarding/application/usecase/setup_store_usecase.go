@@ -129,7 +129,8 @@ func (uc *SetupStoreUseCase) Execute(req *request.SetupStoreRequest) (*response.
 // isValidBusinessType valida que el business type existe en PIM
 func (uc *SetupStoreUseCase) isValidBusinessType(businessType string, businessTypes []*port.BusinessType) bool {
 	for _, bt := range businessTypes {
-		if bt.ID == businessType {
+		// Comparar tanto con ID (UUID) como con Code (ej: "retail", "almacen")
+		if bt.ID == businessType || bt.Code == businessType {
 			return true
 		}
 	}
@@ -213,7 +214,8 @@ func (uc *SetupStoreUseCase) applyPIMConfiguration(tenantID string, req *request
 // getBusinessTypeInfo obtiene información detallada del business type
 func (uc *SetupStoreUseCase) getBusinessTypeInfo(businessType string, businessTypes []*port.BusinessType) *response.BusinessTypeInfo {
 	for _, bt := range businessTypes {
-		if bt.ID == businessType {
+		// Buscar por ID (UUID) o por Code (ej: "retail", "almacen")
+		if bt.ID == businessType || bt.Code == businessType {
 			return &response.BusinessTypeInfo{
 				ID:          bt.ID,
 				Name:        bt.Name,

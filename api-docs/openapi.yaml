@@ -1,0 +1,621 @@
+openapi: 3.1.0
+info:
+  title: Multi-Tenant Onboarding API
+  version: 1.0.0
+  description: |
+    API para el sistema de onboarding guiado de nuevos comercios.
+    
+    ## 🎯 Implementado en HITO 1
+    
+    Permite a un usuario anónimo completar el registro y terminar con un 
+    tenant operativo con acceso al sistema.
+    
+    ## 🔄 Flujo de Onboarding
+    
+    1. **Start**: Inicia proceso de onboarding
+    2. **Register User**: Registra email y datos básicos
+    3. **Verify Email**: Verifica código de 6 dígitos
+    4. **Setup Store**: Configura datos del negocio
+    5. **Select Plan**: Selecciona plan (FREE por defecto)
+    6. **Complete**: Finaliza y crea tenant + usuario en IAM
+    
+    ## ✅ Resultado Final
+    
+    - Tenant creado en IAM
+    - Usuario creado y asociado al tenant
+    - Token JWT para acceso inmediato
+    - Acceso al Quickstart del PIM
+
+servers:
+  - url: /onboarding/api/v1
+    description: Base URL para la API v1
+  - url: http://localhost:8110/onboarding/api/v1
+    description: Servidor local de desarrollo
+  - url: http://localhost:8001/onboarding/api/v1
+    description: A través de Kong API Gateway
+
+components:
+  schemas:
+    # ==========================================
+    # REQUEST SCHEMAS
+    # ==========================================
+    StartOnboardingRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          example: "comercio@ejemplo.com"
+          description: Email del comerciante
+
+    RegisterUserRequest:
+      type: object
+      required:
+        - process_id
+        - email
+        - password
+        - first_name
+        - last_name
+      properties:
+        process_id:
+          type: string
+          format: uuid
+          description: ID del proceso de onboarding
+        email:
+          type: string
+          format: email
+          example: "comercio@ejemplo.com"
+        password:
+          type: string
+          minLength: 8
+          example: "MiPassword123!"
+        first_name:
+          type: string
+          example: "Juan"
+        last_name:
+          type: string
+          example: "Pérez"
+        phone:
+          type: string
+          example: "+5491112345678"
+
+    VerifyEmailRequest:
+      type: object
+      required:
+        - process_id
+        - email
+        - verification_code
+      properties:
+        process_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        verification_code:
+          type: string
+          pattern: "^[0-9]{6}$"
+          example: "123456"
+          description: Código de 6 dígitos
+
+    ResendVerificationRequest:
+      type: object
+      required:
+        - process_id
+        - email
+      properties:
+        process_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+
+    SetupStoreRequest:
+      type: object
+      required:
+        - process_id
+        - store_name
+        - business_type
+      properties:
+        process_id:
+          type: string
+          format: uuid
+        store_name:
+          type: string
+          example: "Ferretería El Tornillo"
+        business_type:
+          type: string
+          example: "ferreteria"
+          description: Código del tipo de negocio
+        address:
+          type: string
+          example: "Av. San Martín 1234"
+        city:
+          type: string
+          example: "Buenos Aires"
+        state:
+          type: string
+          example: "CABA"
+        country:
+          type: string
+          default: "Argentina"
+
+    SelectPlanRequest:
+      type: object
+      required:
+        - process_id
+        - plan_code
+      properties:
+        process_id:
+          type: string
+          format: uuid
+        plan_code:
+          type: string
+          enum: ["FREE", "STARTER", "PROFESSIONAL"]
+          default: "FREE"
+          example: "FREE"
+
+    CompleteOnboardingRequest:
+      type: object
+      required:
+        - process_id
+      properties:
+        process_id:
+          type: string
+          format: uuid
+
+    # ==========================================
+    # RESPONSE SCHEMAS
+    # ==========================================
+    StartOnboardingResponse:
+      type: object
+      properties:
+        process_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        current_step:
+          type: string
+          example: "register_user"
+        status:
+          type: string
+          enum: ["in_progress", "completed", "expired"]
+        created_at:
+          type: string
+          format: date-time
+
+    RegisterUserResponse:
+      type: object
+      properties:
+        process_id:
+          type: string
+          format: uuid
+        message:
+          type: string
+          example: "Usuario registrado. Código de verificación enviado."
+        current_step:
+          type: string
+          example: "verify_email"
+        verification_code:
+          type: string
+          description: Solo en desarrollo, no en producción
+          example: "123456"
+
+    VerifyEmailResponse:
+      type: object
+      properties:
+        process_id:
+          type: string
+          format: uuid
+        message:
+          type: string
+          example: "Email verificado correctamente"
+        current_step:
+          type: string
+          example: "setup_store"
+        email_verified:
+          type: boolean
+          example: true
+
+    ResendVerificationResponse:
+      type: object
+      properties:
+        process_id:
+          type: string
+          format: uuid
+        message:
+          type: string
+          example: "Código de verificación reenviado"
+        new_code:
+          type: string
+          description: Solo en desarrollo
+
+    SetupStoreResponse:
+      type: object
+      properties:
+        process_id:
+          type: string
+          format: uuid
+        message:
+          type: string
+          example: "Datos de la tienda guardados"
+        current_step:
+          type: string
+          example: "select_plan"
+        store_data:
+          type: object
+          properties:
+            store_name:
+              type: string
+            business_type:
+              type: string
+
+    SelectPlanResponse:
+      type: object
+      properties:
+        process_id:
+          type: string
+          format: uuid
+        message:
+          type: string
+          example: "Plan seleccionado correctamente"
+        current_step:
+          type: string
+          example: "complete"
+        selected_plan:
+          type: string
+          example: "FREE"
+
+    CompleteOnboardingResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Onboarding completado exitosamente"
+        tenant_id:
+          type: string
+          format: uuid
+          description: ID del tenant creado
+        user_id:
+          type: string
+          format: uuid
+          description: ID del usuario creado
+        access_token:
+          type: string
+          description: Token JWT para acceso inmediato
+        refresh_token:
+          type: string
+        next_steps:
+          type: array
+          items:
+            type: string
+          example:
+            - "Acceder al panel de administración"
+            - "Iniciar el Quickstart para configurar catálogo"
+
+    ProcessStatusResponse:
+      type: object
+      properties:
+        process_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        status:
+          type: string
+          enum: ["in_progress", "completed", "expired"]
+        current_step:
+          type: string
+          example: "verify_email"
+        steps_completed:
+          type: array
+          items:
+            type: string
+          example: ["start", "register_user"]
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Mensaje de error
+        code:
+          type: string
+          description: Código de error
+        details:
+          type: object
+          description: Detalles adicionales
+
+  responses:
+    BadRequest:
+      description: Solicitud incorrecta
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Proceso no encontrado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Conflicto (email ya registrado, paso inválido)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalServerError:
+      description: Error interno del servidor
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+paths:
+  # ==========================================
+  # HEALTH
+  # ==========================================
+  /health:
+    get:
+      summary: Verificar estado del servicio
+      tags: [Health]
+      responses:
+        '200':
+          description: Servicio saludable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+                  service:
+                    type: string
+                    example: "onboarding-service"
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  # ==========================================
+  # ONBOARDING FLOW
+  # ==========================================
+  /start:
+    post:
+      summary: Iniciar proceso de onboarding
+      description: |
+        Inicia un nuevo proceso de onboarding para un comerciante.
+        Genera un ID de proceso único que se usa en todos los pasos siguientes.
+      tags: [Onboarding]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartOnboardingRequest'
+      responses:
+        '201':
+          description: Proceso iniciado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StartOnboardingResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /register-user:
+    post:
+      summary: Registrar usuario
+      description: |
+        Registra los datos del usuario (email, contraseña, nombre).
+        Genera y envía un código de verificación de 6 dígitos.
+      tags: [Onboarding]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterUserRequest'
+      responses:
+        '200':
+          description: Usuario registrado, código enviado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterUserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /verify-email:
+    post:
+      summary: Verificar email con código
+      description: |
+        Verifica el email del usuario usando el código de 6 dígitos.
+        El código expira en 10 minutos.
+      tags: [Onboarding]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEmailRequest'
+      responses:
+        '200':
+          description: Email verificado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyEmailResponse'
+        '400':
+          description: Código inválido o expirado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /resend-verification:
+    post:
+      summary: Reenviar código de verificación
+      description: Genera y envía un nuevo código de verificación
+      tags: [Onboarding]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResendVerificationRequest'
+      responses:
+        '200':
+          description: Código reenviado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResendVerificationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /setup-store:
+    post:
+      summary: Configurar datos del negocio
+      description: |
+        Guarda los datos del negocio: nombre, tipo, dirección.
+        El tipo de negocio determina el template de Quickstart disponible.
+      tags: [Onboarding]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetupStoreRequest'
+      responses:
+        '200':
+          description: Datos guardados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupStoreResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /select-plan:
+    post:
+      summary: Seleccionar plan
+      description: |
+        Selecciona el plan para el nuevo tenant.
+        Por defecto se usa el plan FREE.
+      tags: [Onboarding]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SelectPlanRequest'
+      responses:
+        '200':
+          description: Plan seleccionado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SelectPlanResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /complete:
+    post:
+      summary: Completar onboarding
+      description: |
+        Finaliza el proceso de onboarding:
+        1. Crea el tenant en IAM
+        2. Crea el usuario asociado
+        3. Genera token JWT para acceso inmediato
+        4. Retorna credenciales y siguiente paso (Quickstart)
+      tags: [Onboarding]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteOnboardingRequest'
+      responses:
+        '200':
+          description: Onboarding completado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompleteOnboardingResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # ==========================================
+  # STATUS & UTILITY
+  # ==========================================
+  /status/{process_id}:
+    get:
+      summary: Obtener estado del proceso
+      description: Consulta el estado actual de un proceso de onboarding
+      tags: [Onboarding]
+      parameters:
+        - name: process_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Estado del proceso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessStatusResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
