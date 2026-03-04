@@ -44,6 +44,7 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS update_verification_codes_updated_at ON verification_codes;
 CREATE TRIGGER update_verification_codes_updated_at
     BEFORE UPDATE ON verification_codes
     FOR EACH ROW

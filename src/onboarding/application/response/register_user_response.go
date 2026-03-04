@@ -14,7 +14,8 @@ type RegisterUserResponse struct {
 	NextStep  int    `json:"next_step"`
 
 	// Autenticación (para poder acceder al backoffice inmediatamente después)
-	AccessToken string `json:"access_token,omitempty"` // JWT token
+	AccessToken  string `json:"access_token,omitempty"`  // JWT token
+	RefreshToken string `json:"refresh_token,omitempty"` // Para renovar sesión (misma estructura que login)
 
 	// Datos del usuario creado
 	UserData UserData `json:"user_data"`
@@ -43,18 +44,19 @@ type TenantData struct {
 }
 
 // NewRegisterUserResponse crea una nueva respuesta de registro exitoso
-func NewRegisterUserResponse(processID, tenantID, userID, accessToken string, userData UserData, tenantData TenantData) *RegisterUserResponse {
+func NewRegisterUserResponse(processID, tenantID, userID, accessToken, refreshToken string, userData UserData, tenantData TenantData) *RegisterUserResponse {
 	return &RegisterUserResponse{
-		Success:     true,
-		Message:     "Usuario registrado exitosamente",
-		ProcessID:   processID,
-		TenantID:    tenantID,
-		UserID:      userID,
-		NextStep:    3, // Siguiente paso: verificación de email
-		AccessToken: accessToken,
-		UserData:    userData,
-		TenantData:  tenantData,
-		CreatedAt:   time.Now(),
+		Success:      true,
+		Message:      "Usuario registrado exitosamente",
+		ProcessID:    processID,
+		TenantID:     tenantID,
+		UserID:       userID,
+		NextStep:     3, // Siguiente paso: verificación de email
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		UserData:     userData,
+		TenantData:   tenantData,
+		CreatedAt:    time.Now(),
 	}
 }
 

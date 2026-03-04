@@ -129,21 +129,20 @@ func (m *Migrator) getMigrationFiles() ([]string, error) {
 // executeMigration ejecuta un archivo de migración específico
 func (m *Migrator) executeMigration(filename string) error {
 	filePath := filepath.Join(m.migrationsPath, filename)
-	
+
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return err
 	}
 
-	// Dividir el contenido en statements separados por ';'
-	statements := strings.Split(string(content), ";")
-	
-	// Ejecutar cada statement en una transacción
+	// Dividir respetando bloques $$ (PL/pgSQL)
+	statements := splitSQLStatements(string(content))
+
 	tx, err := m.db.Begin()
 	if err != nil {
 		return err
 	}
-	
+
 	defer func() {
 		if err != nil {
 			tx.Rollback()
@@ -153,15 +152,66 @@ func (m *Migrator) executeMigration(filename string) error {
 	for _, statement := range statements {
 		statement = strings.TrimSpace(statement)
 		if statement == "" || strings.HasPrefix(statement, "--") {
-			continue // Saltar statements vacíos y comentarios
+			continue
 		}
 
 		if _, err := tx.Exec(statement); err != nil {
-			return fmt.Errorf("error executing statement '%s': %w", statement, err)
+			return fmt.Errorf("error executing statement '%s': %w", truncateForError(statement, 80), err)
 		}
 	}
 
 	return tx.Commit()
+}
+
+// splitSQLStatements divide SQL respetando bloques $$...$$
+func splitSQLStatements(content string) []string {
+	var statements []string
+	var current strings.Builder
+	inDollarQuote := false
+
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		// Saltar líneas que son solo comentarios
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "--") {
+			if !inDollarQuote {
+				continue
+			}
+		}
+
+		// Detectar inicio/fin de bloque $$ (cada $$ alterna el estado)
+		for i := 0; i < strings.Count(line, "$$"); i++ {
+			inDollarQuote = !inDollarQuote
+		}
+
+		current.WriteString(line)
+		current.WriteString("\n")
+
+		// Solo dividir por ; cuando NO estamos dentro de $$
+		if !inDollarQuote && strings.HasSuffix(trimmed, ";") {
+			stmt := strings.TrimSpace(current.String())
+			if stmt != "" {
+				statements = append(statements, stmt)
+			}
+			current.Reset()
+		}
+	}
+
+	if current.Len() > 0 {
+		stmt := strings.TrimSpace(current.String())
+		if stmt != "" {
+			statements = append(statements, stmt)
+		}
+	}
+
+	return statements
+}
+
+func truncateForError(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // recordMigration registra una migración como ejecutada
