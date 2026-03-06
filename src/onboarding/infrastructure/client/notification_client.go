@@ -64,9 +64,9 @@ func (c *NotificationClient) SendEmailVerification(ctx context.Context, email, n
 	data := map[string]interface{}{
 		"name":          name,
 		"token":         verificationCode,
-		"company":       "TiendaVecina",
+		"company":       "MercadoCercano",
 		"expiry_time":   "15 minutos",
-		"support_email": "soporte@tiendavecina.com",
+		"support_email": "soporte@mercadocercano.com",
 	}
 
 	// Preparar request
@@ -112,10 +112,10 @@ func (c *NotificationClient) SendWelcomeEmail(ctx context.Context, email, userNa
 		"name":          userName,
 		"company":       companyName,
 		"business_type": getBusinessTypeDisplay(businessType),
-		"welcome_link":  "https://backoffice.tiendavecina.com/dashboard",
-		"dashboard_url": "https://backoffice.tiendavecina.com/dashboard",
-		"support_url":   "https://tiendavecina.com/soporte",
-		"contact_email": "soporte@tiendavecina.com",
+		"welcome_link":  "https://backoffice.mercadocercano.com/dashboard",
+		"dashboard_url": "https://backoffice.mercadocercano.com/dashboard",
+		"support_url":   "https://mercadocercano.com/soporte",
+		"contact_email": "soporte@mercadocercano.com",
 		"current_year":  time.Now().Year(),
 	}
 

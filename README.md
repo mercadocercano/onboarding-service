@@ -1,6 +1,6 @@
 # 🚀 SaaS Multi-Tenant Onboarding Service
 
-Servicio de onboarding simplificado para la plataforma SaaS multi-tenant que maneja el proceso completo de incorporación de nuevos socios comerciales al marketplace TiendaVecina.
+Servicio de onboarding simplificado para la plataforma SaaS multi-tenant que maneja el proceso completo de incorporación de nuevos socios comerciales al marketplace MercadoCercano.
 
 ## 📋 Descripción del Servicio
 
@@ -236,7 +236,7 @@ Response: {
   "process_id": "uuid",
   "tenant_id": "uuid",
   "completed_at": "2025-06-22T19:34:27Z",
-  "dashboard_url": "https://backoffice.tiendavecina.com/dashboard",
+  "dashboard_url": "https://backoffice.mercadocercano.com/dashboard",
   "welcome_email_sent": true
 }
 ```
@@ -368,7 +368,7 @@ Response: {
   "data": {
     "name": "Usuario",
     "token": "123456",
-    "company": "TiendaVecina",
+    "company": "MercadoCercano",
     "expiry_time": "15 minutos"
   },
   "async": false
@@ -635,17 +635,17 @@ docker run -d -p 8110:8110 \
 
 ### Contacto del equipo:
 - **Desarrollador Principal**: Leonardo Pegorín
-- **Email**: desarrollo@tiendavecina.com
+- **Email**: desarrollo@mercadocercano.com
 - **Slack**: #onboarding-service
 
 ## 📄 Licencia
 
-Este proyecto es propiedad de **TiendaVecina**. Todos los derechos reservados.
+Este proyecto es propiedad de **MercadoCercano**. Todos los derechos reservados.
 
 ---
 
 **Versión**: 2.0.0  
 **Última actualización**: Junio 2025  
-**Mantenido por**: Equipo de Desarrollo TiendaVecina  
+**Mantenido por**: Equipo de Desarrollo MercadoCercano  
 **Puerto**: 8110  
 **Base de datos**: PostgreSQL 15+
