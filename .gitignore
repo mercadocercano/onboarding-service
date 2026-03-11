@@ -75,3 +75,5 @@ postgres_data/
 # Testing
 .test/
 testdata/output/ 
+# Go build cache
+.cache/
