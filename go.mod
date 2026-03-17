@@ -4,13 +4,11 @@ go 1.22
 
 toolchain go1.23.5
 
-replace github.com/mercadocercano/middleware => ../../libs/middleware
-
 require (
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
-	github.com/mercadocercano/middleware v0.0.0
+	github.com/mercadocercano/middleware v0.1.0
 	github.com/prometheus/client_golang v1.22.0
 )
 

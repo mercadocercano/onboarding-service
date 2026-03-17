@@ -3,6 +3,13 @@ FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
+RUN apk add --no-cache git ca-certificates
+
+# Configure private Go modules
+ARG GITHUB_TOKEN
+ENV GOPRIVATE=github.com/mercadocercano/*
+RUN if [ -n "$GITHUB_TOKEN" ]; then git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; fi
+
 # Copiar archivos de dependencias
 COPY go.mod go.sum ./
 RUN go mod download
