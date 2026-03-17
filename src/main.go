@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
+	tenantmw "github.com/mercadocercano/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	onboardingConfig "onboarding/src/onboarding/infrastructure/config"
@@ -35,6 +36,13 @@ func main() {
 	// Agregar middlewares básicos necesarios
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
+	router.Use(tenantmw.TenantValidation(tenantmw.TenantValidationConfig{
+		JWTSecret: os.Getenv("JWT_SECRET"),
+		ExcludedRoutes: []string{
+			"/health",
+			"/metrics",
+		},
+	}))
 
 	// Agregar middleware de manejo de errores
 	router.Use(middleware.ErrorHandlerMiddleware())
