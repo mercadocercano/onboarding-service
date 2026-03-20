@@ -1,0 +1,57 @@
+# Dockerfile.local - Build usando libs locales (sin GITHUB_TOKEN)
+# Ejecutar desde la raíz del repo: docker build -f services/onboarding-service/Dockerfile.local .
+
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /app
+
+RUN apk add --no-cache git ca-certificates
+
+# Copiar código fuente del servicio y libs locales
+COPY services/onboarding-service/ ./
+COPY libs/middleware ./libs/middleware/
+
+# Usar lib local en lugar de GitHub (evita GITHUB_TOKEN)
+RUN echo 'replace github.com/mercadocercano/middleware => ./libs/middleware' >> go.mod
+
+RUN go mod download
+
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./src/main.go
+
+# Final stage (igual que Dockerfile principal)
+FROM alpine:3.18
+
+ARG APP_VERSION=1.0
+ARG APP_PORT=8110
+ARG APP_ENV=development
+
+LABEL maintainer="SaaS Team" \
+      application="onboarding" \
+      version="${APP_VERSION}" \
+      description="Multi-tenant Onboarding service" \
+      environment="${APP_ENV}"
+
+ENV PORT=${APP_PORT} \
+    APP_ENV=${APP_ENV}
+
+RUN apk add --no-cache postgresql-client dos2unix ca-certificates tzdata wget && \
+    cp /usr/share/zoneinfo/UTC /etc/localtime && \
+    echo "UTC" > /etc/timezone && \
+    adduser -D appuser
+
+WORKDIR /app
+
+COPY --from=builder /app/main .
+COPY --from=builder /app/migrations ./migrations
+
+RUN chmod +x /app/main && \
+    chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE ${PORT}
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD wget --quiet --tries=1 --spider http://localhost:${PORT}/health || exit 1
+
+CMD ["./main"]

@@ -41,6 +41,8 @@ func main() {
 		ExcludedRoutes: []string{
 			"/health",
 			"/metrics",
+			// Rutas públicas del wizard (usuario aún no autenticado)
+			"/api/v1/onboarding/*",
 		},
 	}))
 
