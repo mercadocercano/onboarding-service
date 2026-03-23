@@ -15,15 +15,17 @@ import (
 
 // IAMHTTPClient implementa IAMClient usando HTTP
 type IAMHTTPClient struct {
-	baseURL    string
-	httpClient *http.Client
-	superToken string // Token de super admin para operaciones privilegiadas
+	baseURL        string
+	httpClient     *http.Client
+	superToken     string // Token de super admin para operaciones privilegiadas
+	systemTenantID string // Tenant de sistema para operaciones service-to-service
 }
 
 // NewIAMClient crea una nueva instancia del cliente IAM
 func NewIAMClient() port.IAMClient {
 	baseURL := getEnv("IAM_SERVICE_URL", "http://localhost:8080")
-	superToken := getEnv("IAM_SUPER_ADMIN_TOKEN", "") // Token para operaciones privilegiadas
+	superToken := getEnv("IAM_SUPER_ADMIN_TOKEN", "")
+	systemTenantID := getEnv("SYSTEM_TENANT_ID", "123e4567-e89b-12d3-a456-426614174003")
 
 	log.Printf("=== IAM CLIENT INITIALIZATION ===")
 	log.Printf("Base URL: %s", baseURL)
@@ -34,8 +36,17 @@ func NewIAMClient() port.IAMClient {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		superToken: superToken,
+		superToken:     superToken,
+		systemTenantID: systemTenantID,
 	}
+}
+
+// setSystemHeaders agrega X-Tenant-ID del sistema y Authorization para operaciones service-to-service
+func (c *IAMHTTPClient) setSystemHeaders(req *http.Request) {
+	if c.superToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.superToken)
+	}
+	req.Header.Set("X-Tenant-ID", c.systemTenantID)
 }
 
 // CreateTenant crea un nuevo tenant
@@ -53,9 +64,7 @@ func (c *IAMHTTPClient) CreateTenant(request *port.CreateTenantRequest) (*port.T
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if c.superToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.superToken)
-	}
+	c.setSystemHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -96,9 +105,7 @@ func (c *IAMHTTPClient) GetTenant(tenantID string) (*port.TenantResponse, error)
 		return nil, fmt.Errorf("error creating request: %w", err)
 	}
 
-	if c.superToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.superToken)
-	}
+	c.setSystemHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -140,9 +147,7 @@ func (c *IAMHTTPClient) UpdateTenant(tenantID string, request *port.UpdateTenant
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if c.superToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.superToken)
-	}
+	c.setSystemHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -188,9 +193,7 @@ func (c *IAMHTTPClient) UpdateTenantOwner(tenantID, userID string) error {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if c.superToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.superToken)
-	}
+	c.setSystemHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -215,9 +218,7 @@ func (c *IAMHTTPClient) DeleteTenant(tenantID string) error {
 		return fmt.Errorf("error creating request: %w", err)
 	}
 
-	if c.superToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.superToken)
-	}
+	c.setSystemHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -248,9 +249,7 @@ func (c *IAMHTTPClient) CreateUser(request *port.CreateUserRequest) (*port.UserR
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if c.superToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.superToken)
-	}
+	c.setSystemHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -297,12 +296,7 @@ func (c *IAMHTTPClient) GetUser(userID string) (*port.UserResponse, error) {
 		return nil, fmt.Errorf("error creating request: %w", err)
 	}
 
-	if c.superToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.superToken)
-		log.Printf("Added authorization header with super token")
-	} else {
-		log.Printf("No super token available")
-	}
+	c.setSystemHeaders(req)
 
 	log.Printf("Making HTTP request...")
 	resp, err := c.httpClient.Do(req)
@@ -362,9 +356,7 @@ func (c *IAMHTTPClient) UpdateUser(userID string, request *port.UpdateUserReques
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if c.superToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.superToken)
-	}
+	c.setSystemHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -400,9 +392,7 @@ func (c *IAMHTTPClient) DeleteUser(userID string) error {
 		return fmt.Errorf("error creating request: %w", err)
 	}
 
-	if c.superToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.superToken)
-	}
+	c.setSystemHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -427,9 +417,7 @@ func (c *IAMHTTPClient) GetRoleByType(roleType string) (*port.RoleResponse, erro
 		return nil, fmt.Errorf("error creating request: %w", err)
 	}
 
-	if c.superToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.superToken)
-	}
+	c.setSystemHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -476,9 +464,7 @@ func (c *IAMHTTPClient) GetRoles() ([]*port.RoleResponse, error) {
 		return nil, fmt.Errorf("error creating request: %w", err)
 	}
 
-	if c.superToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.superToken)
-	}
+	c.setSystemHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
