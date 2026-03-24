@@ -1,71 +1,101 @@
-# Build stage
-FROM golang:1.24-alpine AS builder
+# ==============================================
+# Onboarding Service - Multi-stage Dockerfile
+# ==============================================
 
+# ==============================================
+# Stage 1: Dependencies
+# ==============================================
+FROM golang:1.24-alpine AS deps
 WORKDIR /app
 
-RUN apk add --no-cache git ca-certificates
+RUN apk add --no-cache git ca-certificates tzdata
 
 # Configure private Go modules
 ARG GITHUB_TOKEN
 ENV GOPRIVATE=github.com/mercadocercano/*
 RUN if [ -n "$GITHUB_TOKEN" ]; then git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; fi
 
-# Copiar archivos de dependencias
 COPY go.mod go.sum ./
-RUN go mod download
+RUN go mod download && go mod verify
 
-# Copiar el código fuente
+# ==============================================
+# Stage 2: Build
+# ==============================================
+FROM deps AS builder
+
 COPY . .
 
-# Compilar la aplicación
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./src/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags='-w -s -extldflags "-static"' \
+    -a -installsuffix cgo \
+    -trimpath \
+    -o onboarding-service ./src/main.go
 
-# Final stage
-FROM alpine:3.18
+# ==============================================
+# Stage 3: Development (with Air hot reload)
+# ==============================================
+FROM golang:1.24-alpine AS development
 
-# Variables de entorno configurables
-ARG APP_VERSION=1.0
-ARG APP_PORT=8110
-ARG APP_ENV=development
+RUN addgroup -g 1001 -S appgroup && \
+    adduser -S -D -h /app -s /bin/sh -G appgroup -u 1001 appuser
 
-# Añadir etiquetas para mejor gestión desde Terraform
-LABEL maintainer="SaaS Team" \
-      application="onboarding" \
-      version="${APP_VERSION}" \
-      description="Multi-tenant Onboarding service" \
-      environment="${APP_ENV}"
+RUN apk add --no-cache \
+    ca-certificates \
+    tzdata \
+    curl \
+    postgresql-client \
+    git \
+    && cp /usr/share/zoneinfo/UTC /etc/localtime \
+    && echo "UTC" > /etc/timezone \
+    && apk del tzdata
 
-# Definir variables de entorno
-ENV PORT=${APP_PORT} \
-    APP_ENV=${APP_ENV}
+RUN go install github.com/cosmtrek/air@v1.49.0
 
-# Instalar dependencias necesarias en una sola capa
-RUN apk add --no-cache postgresql-client dos2unix ca-certificates tzdata wget && \
-    cp /usr/share/zoneinfo/UTC /etc/localtime && \
-    echo "UTC" > /etc/timezone && \
-    adduser -D appuser
+ARG GITHUB_TOKEN
+ENV GOPRIVATE=github.com/mercadocercano/*
+RUN if [ -n "$GITHUB_TOKEN" ]; then git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; fi
 
 WORKDIR /app
 
-# Copiar el binario compilado desde el stage anterior
-COPY --from=builder /app/main .
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Copiar las migraciones
-COPY --from=builder /app/migrations ./migrations
+RUN mkdir -p tmp scripts migrations logs /go/pkg/mod && \
+    chmod -R 777 /go/pkg && \
+    chown -R appuser:appgroup /app tmp scripts migrations logs
 
-# Asignar permisos adecuados
-RUN chmod +x /app/main && \
-    chown -R appuser:appuser /app
+COPY --chown=appuser:appgroup . .
 
-# Cambiar al usuario no-root para seguridad
 USER appuser
 
-# Exponer el puerto (configurable a través de ARG)
-EXPOSE ${PORT}
-
-# Configurar healthcheck para que Terraform sepa si el servicio está listo
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:${PORT}/health || exit 1
+    CMD curl -f http://localhost:8110/health || exit 1
 
-# Comando para ejecutar la aplicación
-CMD ["./main"] 
+EXPOSE 8110
+
+CMD ["air", "-c", ".air.toml"]
+
+# ==============================================
+# Stage 4: Production (Distroless)
+# ==============================================
+FROM gcr.io/distroless/static-debian12:nonroot AS production
+
+LABEL org.opencontainers.image.title="Onboarding Service" \
+      org.opencontainers.image.description="Multi-tenant Onboarding service" \
+      org.opencontainers.image.vendor="SaaS MT Team"
+
+WORKDIR /app
+
+COPY --from=builder --chown=nonroot:nonroot /app/onboarding-service ./
+COPY --from=builder --chown=nonroot:nonroot /app/migrations ./migrations/
+
+USER nonroot
+
+EXPOSE 8110
+
+ENTRYPOINT ["./onboarding-service"]
+
+# ==============================================
+# Default stage: Development
+# ==============================================
+FROM development
