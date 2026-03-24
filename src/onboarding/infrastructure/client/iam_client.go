@@ -11,38 +11,48 @@ import (
 	"time"
 
 	"onboarding/src/onboarding/domain/port"
+	"onboarding/src/onboarding/infrastructure/auth"
 )
 
 // IAMHTTPClient implementa IAMClient usando HTTP
 type IAMHTTPClient struct {
 	baseURL        string
 	httpClient     *http.Client
-	superToken     string // Token de super admin para operaciones privilegiadas
+	tokenProvider  *auth.ServiceTokenProvider
 	systemTenantID string // Tenant de sistema para operaciones service-to-service
 }
 
 // NewIAMClient crea una nueva instancia del cliente IAM
 func NewIAMClient() port.IAMClient {
+	return NewIAMClientWithProvider(nil)
+}
+
+// NewIAMClientWithProvider crea un cliente IAM con un ServiceTokenProvider.
+// Si provider es nil, se crea uno con los env vars disponibles.
+func NewIAMClientWithProvider(provider *auth.ServiceTokenProvider) port.IAMClient {
 	baseURL := getEnv("IAM_SERVICE_URL", "http://localhost:8080")
-	superToken := getEnv("IAM_SUPER_ADMIN_TOKEN", "")
 	systemTenantID := getEnv("SYSTEM_TENANT_ID", "123e4567-e89b-12d3-a456-426614174003")
 
-	log.Printf("[IAM_CLIENT] Initialized - superToken configured: %t", superToken != "")
+	if provider == nil {
+		jwtSecret := getEnv("JWT_SECRET", "")
+		staticToken := getEnv("IAM_SUPER_ADMIN_TOKEN", "")
+		provider = auth.NewServiceTokenProvider(jwtSecret, staticToken)
+	}
 
 	return &IAMHTTPClient{
 		baseURL: baseURL,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		superToken:     superToken,
+		tokenProvider:  provider,
 		systemTenantID: systemTenantID,
 	}
 }
 
 // setSystemHeaders agrega X-Tenant-ID del sistema y Authorization para operaciones service-to-service
 func (c *IAMHTTPClient) setSystemHeaders(req *http.Request) {
-	if c.superToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.superToken)
+	if token := c.tokenProvider.GetToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	req.Header.Set("X-Tenant-ID", c.systemTenantID)
 }

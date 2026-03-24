@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"onboarding/src/onboarding/application/usecase"
+	"onboarding/src/onboarding/infrastructure/auth"
 	"onboarding/src/onboarding/infrastructure/client"
 	"onboarding/src/onboarding/infrastructure/controller"
 	"onboarding/src/onboarding/infrastructure/persistence"
@@ -18,8 +19,13 @@ import (
 func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 	log.Println("Setting up Onboarding module...")
 
-	// 1. Inicializar clientes externos
-	iamClient := client.NewIAMClient()
+	// 1. Inicializar token provider para service-to-service auth
+	jwtSecret := os.Getenv("JWT_SECRET")
+	staticToken := os.Getenv("IAM_SUPER_ADMIN_TOKEN")
+	tokenProvider := auth.NewServiceTokenProvider(jwtSecret, staticToken)
+
+	// 2. Inicializar clientes externos
+	iamClient := client.NewIAMClientWithProvider(tokenProvider)
 	pimClient := client.NewPIMClient()
 
 	// Obtener URL del servicio de notificaciones desde variable de entorno
