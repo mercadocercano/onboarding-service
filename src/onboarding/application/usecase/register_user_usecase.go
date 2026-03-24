@@ -98,7 +98,7 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 		// No fallar todo el proceso, pero logear el error
 		// En producción podrías querer marcar esto para reintento
 	} else {
-		log.Printf("Verification email sent successfully to: %s with code: %s", req.GetCleanEmail(), verificationCode)
+		log.Printf("Verification email sent successfully for process")
 	}
 
 	// 8. Preparar respuesta exitosa
@@ -122,7 +122,7 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 		processIDStr = process.ID.String()
 	}
 
-	log.Printf("User registered successfully: email=%s, tenant=%s, user=%s", req.Email, tenant.ID, user.ID)
+	log.Printf("User registered successfully: tenant=%s, user=%s", tenant.ID, user.ID)
 
 	// 9. Hacer login automático para obtener access_token y refresh_token (misma estructura que login)
 	var accessToken, refreshToken string

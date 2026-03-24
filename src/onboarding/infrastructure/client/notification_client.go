@@ -58,7 +58,7 @@ func GenerateVerificationCode() string {
 
 // SendEmailVerification envía un email de verificación con código
 func (c *NotificationClient) SendEmailVerification(ctx context.Context, email, name, verificationCode string) error {
-	log.Printf("Sending email verification to: %s, name: %s, code: %s", email, name, verificationCode)
+	log.Printf("Sending email verification")
 
 	// Preparar datos para el template
 	data := map[string]interface{}{
@@ -84,26 +84,16 @@ func (c *NotificationClient) SendEmailVerification(ctx context.Context, email, n
 
 // SendWelcomeEmail envía un correo de bienvenida después de completar el onboarding
 func (c *NotificationClient) SendWelcomeEmail(ctx context.Context, email, userName, companyName, businessType string) error {
-	log.Printf("=== NOTIFICATION CLIENT: SendWelcomeEmail START ===")
-	log.Printf("Parameters received:")
-	log.Printf("  - Email: %s", email)
-	log.Printf("  - User Name: %s", userName)
-	log.Printf("  - Company Name: %s", companyName)
-	log.Printf("  - Business Type: %s", businessType)
-	log.Printf("  - Base URL: %s", c.baseURL)
-	log.Printf("  - Timeout: %v", c.timeout)
+	log.Printf("[NOTIFICATION] SendWelcomeEmail - businessType: %s", businessType)
 
 	// Validar parámetros
 	if email == "" {
-		log.Printf("ERROR: Email parameter is empty")
 		return fmt.Errorf("email cannot be empty")
 	}
 	if userName == "" {
-		log.Printf("WARNING: User name is empty, using default")
 		userName = "Usuario"
 	}
 	if companyName == "" {
-		log.Printf("WARNING: Company name is empty, using default")
 		companyName = "Tu Empresa"
 	}
 
@@ -119,13 +109,6 @@ func (c *NotificationClient) SendWelcomeEmail(ctx context.Context, email, userNa
 		"current_year":  time.Now().Year(),
 	}
 
-	log.Printf("Template data prepared:")
-	log.Printf("  - name: %s", data["name"])
-	log.Printf("  - company: %s", data["company"])
-	log.Printf("  - business_type: %s", data["business_type"])
-	log.Printf("  - welcome_link: %s", data["welcome_link"])
-	log.Printf("  - current_year: %v", data["current_year"])
-
 	request := &port.NotificationRequest{
 		Type:      "email",
 		Action:    "WELCOME",
@@ -134,128 +117,58 @@ func (c *NotificationClient) SendWelcomeEmail(ctx context.Context, email, userNa
 		Async:     false, // Enviar de forma síncrona para garantizar entrega inmediata
 	}
 
-	log.Printf("Notification request created:")
-	log.Printf("  - Type: %s", request.Type)
-	log.Printf("  - Action: %s", request.Action)
-	log.Printf("  - Recipient: %s", request.Recipient)
-	log.Printf("  - Async: %t", request.Async)
-
-	log.Printf("Calling SendNotification...")
 	response, err := c.SendNotification(ctx, request)
 	if err != nil {
-		log.Printf("ERROR: SendNotification failed")
-		log.Printf("  - Error type: %T", err)
-		log.Printf("  - Error message: %v", err)
-		log.Printf("=== NOTIFICATION CLIENT: SendWelcomeEmail END (ERROR) ===")
+		log.Printf("[NOTIFICATION] SendWelcomeEmail failed: %v", err)
 		return fmt.Errorf("error enviando correo de bienvenida: %w", err)
 	}
 
-	log.Printf("SUCCESS: SendNotification completed")
 	if response != nil {
-		log.Printf("Response received:")
-		log.Printf("  - Success: %t", response.Success)
-		log.Printf("  - Message: %s", response.Message)
-		log.Printf("  - NotificationID: %s", response.NotificationID)
-		log.Printf("  - Status: %s", response.Status)
-	} else {
-		log.Printf("  - Response is nil")
+		log.Printf("[NOTIFICATION] SendWelcomeEmail success - notificationID: %s", response.NotificationID)
 	}
-
-	log.Printf("=== NOTIFICATION CLIENT: SendWelcomeEmail END (SUCCESS) ===")
 	return nil
 }
 
 // SendNotification envía una notificación genérica
 func (c *NotificationClient) SendNotification(ctx context.Context, req *port.NotificationRequest) (*port.NotificationResponse, error) {
-	log.Printf("=== HTTP CLIENT: SendNotification START ===")
-
-	// Preparar el request HTTP
-	log.Printf("Serializing request to JSON...")
 	jsonData, err := json.Marshal(req)
 	if err != nil {
-		log.Printf("ERROR: Failed to serialize request to JSON: %v", err)
 		return nil, fmt.Errorf("error serializando request: %w", err)
 	}
 
-	log.Printf("Request payload: %s", string(jsonData))
-	log.Printf("Request size: %d bytes", len(jsonData))
-
-	// Crear el contexto con timeout
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	// Crear la request HTTP
 	url := c.baseURL + "/notifications"
-	log.Printf("Creating HTTP request:")
-	log.Printf("  - Method: POST")
-	log.Printf("  - URL: %s", url)
-	log.Printf("  - Timeout: %v", c.timeout)
-
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		log.Printf("ERROR: Failed to create HTTP request: %v", err)
 		return nil, fmt.Errorf("error creando request HTTP: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	log.Printf("Headers set: Content-Type=application/json")
 
-	// Ejecutar la request
-	log.Printf("Executing HTTP request...")
 	client := &http.Client{Timeout: c.timeout}
-
-	startTime := time.Now()
 	resp, err := client.Do(httpReq)
-	duration := time.Since(startTime)
-
 	if err != nil {
-		log.Printf("ERROR: HTTP request failed after %v", duration)
-		log.Printf("  - Error type: %T", err)
-		log.Printf("  - Error message: %v", err)
-
-		log.Printf("=== HTTP CLIENT: SendNotification END (REQUEST ERROR) ===")
+		log.Printf("[NOTIFICATION] HTTP request failed: %v", err)
 		return nil, fmt.Errorf("error ejecutando request HTTP: %w", err)
 	}
 	defer resp.Body.Close()
 
-	log.Printf("HTTP request completed in %v", duration)
-	log.Printf("Response received:")
-	log.Printf("  - Status Code: %d", resp.StatusCode)
-	log.Printf("  - Status: %s", resp.Status)
-	log.Printf("  - Headers: %+v", resp.Header)
-
-	// Leer la respuesta
-	log.Printf("Reading response body...")
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("ERROR: Failed to read response body: %v", err)
 		return nil, fmt.Errorf("error leyendo respuesta: %w", err)
 	}
 
-	log.Printf("Response body read:")
-	log.Printf("  - Size: %d bytes", len(body))
-	log.Printf("  - Content: %s", string(body))
-
-	// Verificar el status code
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Printf("ERROR: Non-success status code received")
-		log.Printf("  - Status Code: %d", resp.StatusCode)
-		log.Printf("  - Response Body: %s", string(body))
-		log.Printf("=== HTTP CLIENT: SendNotification END (STATUS ERROR) ===")
+		log.Printf("[NOTIFICATION] Service returned status %d", resp.StatusCode)
 		return nil, fmt.Errorf("notification service returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parsear la respuesta
-	log.Printf("Parsing response JSON...")
 	var response port.NotificationResponse
 	if err := json.Unmarshal(body, &response); err != nil {
-		log.Printf("WARNING: Failed to parse as NotificationResponse, trying generic parse...")
-		log.Printf("  - Parse error: %v", err)
-
-		// Si no podemos parsear como NotificationResponse, intentar como respuesta de éxito genérica
 		var genericResponse map[string]interface{}
 		if err2 := json.Unmarshal(body, &genericResponse); err2 == nil {
-			log.Printf("SUCCESS: Parsed as generic response: %+v", genericResponse)
 			response = port.NotificationResponse{
 				Success:        true,
 				Message:        "Notification sent successfully",
@@ -263,17 +176,10 @@ func (c *NotificationClient) SendNotification(ctx context.Context, req *port.Not
 				Status:         "sent",
 			}
 		} else {
-			log.Printf("ERROR: Failed to parse response as any JSON format")
-			log.Printf("  - Generic parse error: %v", err2)
-			log.Printf("  - Raw response: %s", string(body))
-			log.Printf("=== HTTP CLIENT: SendNotification END (PARSE ERROR) ===")
 			return nil, fmt.Errorf("error parseando respuesta JSON: %w", err)
 		}
-	} else {
-		log.Printf("SUCCESS: Parsed as NotificationResponse: %+v", response)
 	}
 
-	log.Printf("=== HTTP CLIENT: SendNotification END (SUCCESS) ===")
 	return &response, nil
 }
 

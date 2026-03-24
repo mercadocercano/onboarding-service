@@ -219,37 +219,17 @@ func (uc *CompleteOnboardingUseCase) sendWelcomeEmailAsync(process *entity.Onboa
 				return
 			}
 
-			log.Printf("SUCCESS: Retrieved user from IAM service")
-			log.Printf("  - Email: %s", user.Email)
-			log.Printf("  - Name: %s", user.Name)
-
-			// Validar datos antes del envío
 			if user.Email == "" {
-				log.Printf("ERROR: User email is empty, cannot send welcome email")
+				log.Printf("[ONBOARDING] User email is empty, cannot send welcome email")
 				return
 			}
 
-			log.Printf("Preparing to send welcome email...")
-			log.Printf("  - Recipient: %s", user.Email)
-			log.Printf("  - Company: %s", process.CompanyName)
-			log.Printf("  - Business Type: %s", process.BusinessType)
-			log.Printf("  - NotificationClient type: %T", uc.notificationClient)
-
-			// Intentar enviar el email con manejo detallado de errores
 			err = uc.notificationClient.SendWelcomeEmail(ctx, user.Email, user.Name, process.CompanyName, process.BusinessType)
 			if err != nil {
-				log.Printf("ERROR: Failed to send welcome email")
-				log.Printf("  - Recipient: %s", user.Email)
-				log.Printf("  - Error type: %T", err)
-				log.Printf("  - Error message: %v", err)
-				log.Printf("  - Context: email=%s, company=%s, businessType=%s", user.Email, process.CompanyName, process.BusinessType)
+				log.Printf("[ONBOARDING] Failed to send welcome email for user ID: %s - %v", process.UserID, err)
 			} else {
-				log.Printf("SUCCESS: Welcome email sent successfully")
-				log.Printf("  - Recipient: %s", user.Email)
-				log.Printf("  - Company: %s", process.CompanyName)
+				log.Printf("[ONBOARDING] Welcome email sent for user ID: %s", process.UserID)
 			}
-
-			log.Printf("=== ASYNC WELCOME EMAIL GOROUTINE END ===")
 		}()
 	} else {
 		log.Printf("ERROR: Cannot send welcome email - missing dependencies")

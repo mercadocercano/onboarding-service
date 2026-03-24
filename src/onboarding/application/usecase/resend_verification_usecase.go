@@ -34,7 +34,7 @@ func NewResendVerificationUseCase(
 
 // Execute ejecuta el caso de uso de reenvío de email de verificación
 func (uc *ResendVerificationUseCase) Execute(req *request.ResendVerificationRequest) (*response.ResendVerificationResponse, error) {
-	log.Printf("Resending verification email for process: %s, email: %s", req.ProcessID, req.Email)
+	log.Printf("Resending verification email for process: %s", req.ProcessID)
 
 	// Sanitizar y validar request
 	req.Sanitize()
@@ -116,7 +116,7 @@ func (uc *ResendVerificationUseCase) Execute(req *request.ResendVerificationRequ
 		return response.NewResendVerificationErrorResponse("Error al enviar email de verificación", err), err
 	}
 
-	log.Printf("Verification email resent successfully. Process: %s, Code: %s", req.ProcessID, newVerificationCode)
+	log.Printf("Verification email resent successfully. Process: %s", req.ProcessID)
 
 	// Retornar respuesta exitosa
 	return response.NewResendVerificationSuccessResponse(req.ProcessID), nil

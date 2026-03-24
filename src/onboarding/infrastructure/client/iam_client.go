@@ -27,9 +27,7 @@ func NewIAMClient() port.IAMClient {
 	superToken := getEnv("IAM_SUPER_ADMIN_TOKEN", "")
 	systemTenantID := getEnv("SYSTEM_TENANT_ID", "123e4567-e89b-12d3-a456-426614174003")
 
-	log.Printf("=== IAM CLIENT INITIALIZATION ===")
-	log.Printf("Base URL: %s", baseURL)
-	log.Printf("Super token configured: %t", superToken != "")
+	log.Printf("[IAM_CLIENT] Initialized - superToken configured: %t", superToken != "")
 
 	return &IAMHTTPClient{
 		baseURL: baseURL,
@@ -86,13 +84,11 @@ func (c *IAMHTTPClient) CreateTenant(request *port.CreateTenantRequest) (*port.T
 		return nil, fmt.Errorf("error unmarshaling response: %w", err)
 	}
 
-	// Verificar que el tenant fue creado correctamente
 	if tenant.ID == "" {
-		log.Printf("IAM service response body: %s", string(body))
 		return nil, fmt.Errorf("IAM service returned empty tenant data")
 	}
 
-	log.Printf("Tenant created successfully: %s", tenant.ID)
+	log.Printf("[IAM_CLIENT] Tenant created: %s", tenant.ID)
 	return &tenant, nil
 }
 
@@ -271,73 +267,46 @@ func (c *IAMHTTPClient) CreateUser(request *port.CreateUserRequest) (*port.UserR
 		return nil, fmt.Errorf("error unmarshaling response: %w", err)
 	}
 
-	// Verificar que el usuario fue creado correctamente
 	if user.ID == "" {
-		log.Printf("IAM service response body: %s", string(body))
 		return nil, fmt.Errorf("IAM service returned empty user data")
 	}
 
-	log.Printf("User created successfully: %s", user.ID)
+	log.Printf("[IAM_CLIENT] User created: %s", user.ID)
 	return &user, nil
 }
 
 // GetUser obtiene un usuario por ID
 func (c *IAMHTTPClient) GetUser(userID string) (*port.UserResponse, error) {
-	log.Printf("=== IAM CLIENT: GetUser START ===")
-	log.Printf("UserID: %s", userID)
-	log.Printf("Base URL: %s", c.baseURL)
-
 	url := fmt.Sprintf("%s/api/v1/users/%s", c.baseURL, userID)
-	log.Printf("Request URL: %s", url)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		log.Printf("ERROR: Failed to create HTTP request: %v", err)
 		return nil, fmt.Errorf("error creating request: %w", err)
 	}
 
 	c.setSystemHeaders(req)
 
-	log.Printf("Making HTTP request...")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		log.Printf("ERROR: HTTP request failed: %v", err)
 		return nil, fmt.Errorf("error making request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	log.Printf("HTTP response status: %d %s", resp.StatusCode, resp.Status)
-
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("ERROR: Failed to read response body: %v", err)
 		return nil, fmt.Errorf("error reading response: %w", err)
 	}
 
-	log.Printf("Response body: %s", string(body))
-	log.Printf("Response size: %d bytes", len(body))
-
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("ERROR: Non-success status code received")
-		log.Printf("=== IAM CLIENT: GetUser END (STATUS ERROR) ===")
-		return nil, fmt.Errorf("IAM service error: %s (status: %d)", string(body), resp.StatusCode)
+		return nil, fmt.Errorf("IAM service error: status %d", resp.StatusCode)
 	}
 
-	log.Printf("Parsing response JSON...")
 	var user port.UserResponse
 	if err := json.Unmarshal(body, &user); err != nil {
-		log.Printf("ERROR: Failed to parse JSON response: %v", err)
-		log.Printf("=== IAM CLIENT: GetUser END (PARSE ERROR) ===")
 		return nil, fmt.Errorf("error unmarshaling response: %w", err)
 	}
 
-	log.Printf("JSON parsed successfully")
-	log.Printf("User found:")
-	log.Printf("  - ID: %s", user.ID)
-	log.Printf("  - Email: %s", user.Email)
-	log.Printf("  - Name: %s", user.Name)
-	log.Printf("=== IAM CLIENT: GetUser END (SUCCESS) ===")
-
+	log.Printf("[IAM_CLIENT] GetUser success - ID: %s", user.ID)
 	return &user, nil
 }
 

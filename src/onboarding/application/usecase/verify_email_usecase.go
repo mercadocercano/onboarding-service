@@ -126,7 +126,7 @@ func (uc *VerifyEmailUseCase) verifyCodeWithDatabase(processID uuid.UUID, code s
 
 	// Verificar si el código coincide
 	if verificationCode.Code != code {
-		log.Printf("Verification code mismatch. Expected: %s, Got: %s", verificationCode.Code, code)
+		log.Printf("Verification code mismatch for process")
 		return false, nil
 	}
 
