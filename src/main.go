@@ -40,6 +40,7 @@ func main() {
 		JWTSecret: os.Getenv("JWT_SECRET"),
 		ExcludedRoutes: []string{
 			"/health",
+			"/api/v1/health",
 			"/metrics",
 			// Rutas públicas del wizard (usuario aún no autenticado)
 			"/api/v1/onboarding/*",
