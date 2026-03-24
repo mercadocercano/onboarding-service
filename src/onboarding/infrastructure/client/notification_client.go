@@ -10,6 +10,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"os"
 	"time"
 
 	"onboarding/src/onboarding/domain/port"
@@ -18,13 +19,17 @@ import (
 type NotificationClient struct {
 	baseURL string
 	timeout time.Duration
+	apiKey  string
 }
 
-// NewNotificationClient crea una nueva instancia del cliente de notificaciones
+// NewNotificationClient crea una nueva instancia del cliente de notificaciones con autenticación S2S
 func NewNotificationClient(baseURL string) port.NotificationClient {
+	apiKey := os.Getenv("S2S_API_KEY")
+
 	return &NotificationClient{
 		baseURL: baseURL,
 		timeout: 30 * time.Second,
+		apiKey:  apiKey,
 	}
 }
 
@@ -146,6 +151,10 @@ func (c *NotificationClient) SendNotification(ctx context.Context, req *port.Not
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
+	// Autenticación S2S via API Key
+	if c.apiKey != "" {
+		httpReq.Header.Set("X-API-Key", c.apiKey)
+	}
 
 	client := &http.Client{Timeout: c.timeout}
 	resp, err := client.Do(httpReq)

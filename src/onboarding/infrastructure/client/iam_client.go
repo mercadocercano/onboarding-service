@@ -14,12 +14,13 @@ import (
 	"onboarding/src/onboarding/infrastructure/auth"
 )
 
-// IAMHTTPClient implementa IAMClient usando HTTP
+// IAMHTTPClient implementa IAMClient usando HTTP (S2S)
 type IAMHTTPClient struct {
 	baseURL        string
 	httpClient     *http.Client
 	tokenProvider  *auth.ServiceTokenProvider
 	systemTenantID string // Tenant de sistema para operaciones service-to-service
+	apiKey         string // API Key para autenticación S2S via Kong
 }
 
 // NewIAMClient crea una nueva instancia del cliente IAM
@@ -39,6 +40,8 @@ func NewIAMClientWithProvider(provider *auth.ServiceTokenProvider) port.IAMClien
 		provider = auth.NewServiceTokenProvider(jwtSecret, staticToken)
 	}
 
+	apiKey := getEnv("S2S_API_KEY", "")
+
 	return &IAMHTTPClient{
 		baseURL: baseURL,
 		httpClient: &http.Client{
@@ -46,11 +49,17 @@ func NewIAMClientWithProvider(provider *auth.ServiceTokenProvider) port.IAMClien
 		},
 		tokenProvider:  provider,
 		systemTenantID: systemTenantID,
+		apiKey:         apiKey,
 	}
 }
 
-// setSystemHeaders agrega X-Tenant-ID del sistema y Authorization para operaciones service-to-service
+// setSystemHeaders agrega headers para operaciones service-to-service
 func (c *IAMHTTPClient) setSystemHeaders(req *http.Request) {
+	// Autenticación S2S via API Key (Kong internal routes)
+	if c.apiKey != "" {
+		req.Header.Set("X-API-Key", c.apiKey)
+	}
+	// Fallback: JWT de servicio para compatibilidad
 	if token := c.tokenProvider.GetToken(); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}

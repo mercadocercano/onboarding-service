@@ -13,21 +13,24 @@ import (
 	"onboarding/src/onboarding/domain/port"
 )
 
-// PIMHTTPClient implementa PIMClient usando HTTP
+// PIMHTTPClient implementa PIMClient usando HTTP (S2S)
 type PIMHTTPClient struct {
 	baseURL    string
 	httpClient *http.Client
+	apiKey     string
 }
 
-// NewPIMClient crea una nueva instancia del cliente PIM
+// NewPIMClient crea una nueva instancia del cliente PIM con autenticación S2S
 func NewPIMClient() port.PIMClient {
 	baseURL := getEnvPIM("PIM_SERVICE_URL", "http://localhost:8090")
+	apiKey := os.Getenv("S2S_API_KEY")
 
 	return &PIMHTTPClient{
 		baseURL: baseURL,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		apiKey: apiKey,
 	}
 }
 
