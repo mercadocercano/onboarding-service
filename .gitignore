@@ -77,3 +77,10 @@ postgres_data/
 testdata/output/ 
 # Go build cache
 .cache/
+
+tmp/
+.cache/
+.config/
+.gitconfig
+*-management/
+.cursorrules
