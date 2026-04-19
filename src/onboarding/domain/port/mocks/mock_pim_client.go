@@ -74,3 +74,11 @@ func (m *MockPIMClient) CreateInitialProducts(tenantID string, config *port.Init
 	}
 	return args.Get(0).(*port.ProductSetupResponse), args.Error(1)
 }
+
+func (m *MockPIMClient) ImportProductsFromBusinessType(tenantID, businessTypeCode string) (*port.ImportProductsResponse, error) {
+	args := m.Called(tenantID, businessTypeCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*port.ImportProductsResponse), args.Error(1)
+}

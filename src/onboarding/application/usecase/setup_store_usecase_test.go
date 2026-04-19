@@ -39,6 +39,7 @@ func TestSetupStore_WithValidRequest_ReturnsSuccess(t *testing.T) {
 	pimClient.On("GetBusinessType", "retail").Return(businessTypes[0], nil)
 	pimClient.On("GetCategoriesByBusinessType", "retail").Return([]*port.Category{}, nil)
 	pimClient.On("ApplyQuickstartTemplate", mock.AnythingOfType("string"), mock.AnythingOfType("*port.QuickstartConfig")).Return(&port.QuickstartResponse{Success: true}, nil)
+	pimClient.On("ImportProductsFromBusinessType", mock.AnythingOfType("string"), "retail").Return(&port.ImportProductsResponse{}, nil).Maybe()
 	iamClient.On("UpdateTenant", mock.AnythingOfType("string"), mock.AnythingOfType("*port.UpdateTenantRequest")).Return(&port.TenantResponse{}, nil)
 
 	req := &request.SetupStoreRequest{
@@ -256,6 +257,7 @@ func TestSetupStore_WithCategories_IncludesThemInResponse(t *testing.T) {
 	pimClient.On("GetBusinessType", "retail").Return(businessTypes[0], nil)
 	pimClient.On("GetCategoriesByBusinessType", "retail").Return([]*port.Category{}, nil)
 	pimClient.On("ApplyQuickstartTemplate", mock.AnythingOfType("string"), mock.AnythingOfType("*port.QuickstartConfig")).Return(&port.QuickstartResponse{Success: true}, nil)
+	pimClient.On("ImportProductsFromBusinessType", mock.AnythingOfType("string"), "retail").Return(&port.ImportProductsResponse{}, nil).Maybe()
 	iamClient.On("UpdateTenant", mock.AnythingOfType("string"), mock.AnythingOfType("*port.UpdateTenantRequest")).Return(&port.TenantResponse{}, nil)
 
 	req := &request.SetupStoreRequest{
@@ -273,5 +275,5 @@ func TestSetupStore_WithCategories_IncludesThemInResponse(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.True(t, resp.Success)
-	assert.Equal(t, "professional", resp.RecommendedPlan)
+	assert.Equal(t, "premium", resp.RecommendedPlan)
 }

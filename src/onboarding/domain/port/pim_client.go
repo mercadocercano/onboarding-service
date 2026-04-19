@@ -17,6 +17,21 @@ type PIMClient interface {
 
 	// Product setup operations
 	CreateInitialProducts(tenantID string, config *InitialProductsConfig) (*ProductSetupResponse, error)
+
+	// Import products from global catalog by business type
+	ImportProductsFromBusinessType(tenantID, businessTypeCode string) (*ImportProductsResponse, error)
+}
+
+// ImportProductsResponse representa la respuesta de importación de productos
+type ImportProductsResponse struct {
+	TenantID       string `json:"tenant_id"`
+	BusinessTypeID string `json:"business_type_id"`
+	Summary        struct {
+		TotalAttempted  int `json:"total_attempted"`
+		TotalImported   int `json:"total_imported"`
+		TotalFailed     int `json:"total_failed"`
+		TotalSkipped    int `json:"total_skipped"`
+	} `json:"summary"`
 }
 
 // BusinessType representa un tipo de negocio en PIM

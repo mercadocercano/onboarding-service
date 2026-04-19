@@ -136,7 +136,7 @@ func (r *SetupStoreRequest) GetRecommendedPlan() string {
 	case "micro":
 		return "basic"
 	case "pyme":
-		return "professional"
+		return "premium"
 	case "multiple":
 		return "enterprise"
 	default:

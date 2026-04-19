@@ -220,7 +220,7 @@ Response: {
     },
     "store_size": "pyme"
   },
-  "recommended_plan": "professional"
+  "recommended_plan": "premium"
 }
 ```
 

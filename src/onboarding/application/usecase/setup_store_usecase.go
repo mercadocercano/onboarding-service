@@ -204,9 +204,14 @@ func (uc *SetupStoreUseCase) applyPIMConfiguration(tenantID string, req *request
 
 	log.Printf("PIM configuration applied successfully for tenant %s: %+v", tenantID, response)
 
-	// 6. Log de estadísticas de configuración
-	log.Printf("Business type '%s' linked to tenant %s with %d categories",
-		req.BusinessType, tenantID, len(selectedCategories))
+	// 6. Importar productos del catálogo global para este business type
+	importResp, err := uc.pimClient.ImportProductsFromBusinessType(tenantID, req.BusinessType)
+	if err != nil {
+		log.Printf("Warning: Could not import products for tenant %s: %v", tenantID, err)
+	} else {
+		log.Printf("Imported %d products for tenant %s (business_type=%s)",
+			importResp.Summary.TotalImported, tenantID, req.BusinessType)
+	}
 
 	return nil
 }

@@ -36,7 +36,7 @@ func NewPIMClient() port.PIMClient {
 
 // GetBusinessTypes obtiene todos los tipos de negocio
 func (c *PIMHTTPClient) GetBusinessTypes() ([]*port.BusinessType, error) {
-	url := fmt.Sprintf("%s/api/v1/business-types", c.baseURL)
+	url := fmt.Sprintf("%s/api/v1/business-types?page_size=100", c.baseURL)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -58,51 +58,19 @@ func (c *PIMHTTPClient) GetBusinessTypes() ([]*port.BusinessType, error) {
 		return nil, fmt.Errorf("PIM service error: %s (status: %d)", string(body), resp.StatusCode)
 	}
 
-	// DEBUG: Log the raw response to understand the structure
-	log.Printf("DEBUG: PIM service raw response: %s", string(body))
-
-	// Intentar unmarshal directo del array primero
-	var businessTypes []*port.BusinessType
-	if err := json.Unmarshal(body, &businessTypes); err != nil {
-		log.Printf("DEBUG: Direct array unmarshal failed: %v", err)
-
-		// Si falla, intentar con wrapper object
-		var result struct {
-			BusinessTypes []*port.BusinessType `json:"business_types"`
-			Data          []*port.BusinessType `json:"data"`
-			Items         []*port.BusinessType `json:"items"`
-		}
-
-		if err := json.Unmarshal(body, &result); err != nil {
-			return nil, fmt.Errorf("error unmarshaling response (both formats): %w", err)
-		}
-
-		// Determinar qué campo contiene los datos
-		if len(result.BusinessTypes) > 0 {
-			businessTypes = result.BusinessTypes
-			log.Printf("DEBUG: Used 'business_types' field")
-		} else if len(result.Data) > 0 {
-			businessTypes = result.Data
-			log.Printf("DEBUG: Used 'data' field")
-		} else if len(result.Items) > 0 {
-			businessTypes = result.Items
-			log.Printf("DEBUG: Used 'items' field")
-		} else {
-			return nil, fmt.Errorf("no business types found in response")
-		}
-	} else {
-		log.Printf("DEBUG: Direct array unmarshal succeeded")
+	var result struct {
+		Items []*port.BusinessType `json:"items"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("error unmarshaling business types response: %w", err)
 	}
 
-	log.Printf("Retrieved %d business types from PIM service", len(businessTypes))
-
-	// DEBUG: Log first business type to verify mapping
-	if len(businessTypes) > 0 {
-		log.Printf("DEBUG: First business type - ID: %s, Name: %s, IsActive: %v",
-			businessTypes[0].ID, businessTypes[0].Name, businessTypes[0].IsActive)
+	if len(result.Items) == 0 {
+		return nil, fmt.Errorf("no business types found in PIM response")
 	}
 
-	return businessTypes, nil
+	log.Printf("Retrieved %d business types from PIM service", len(result.Items))
+	return result.Items, nil
 }
 
 // GetBusinessType obtiene un tipo de negocio específico
@@ -403,6 +371,55 @@ func (c *PIMHTTPClient) CreateInitialProducts(tenantID string, config *port.Init
 	log.Printf("Initial products created successfully for tenant %s: %d products",
 		tenantID, productResponse.ProductsCreated)
 	return &productResponse, nil
+}
+
+// ImportProductsFromBusinessType importa productos del catálogo global al tenant
+func (c *PIMHTTPClient) ImportProductsFromBusinessType(tenantID, businessTypeCode string) (*port.ImportProductsResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/quickstart/products/import-from-business-type", c.baseURL)
+
+	body := map[string]interface{}{
+		"business_type_id": businessTypeCode,
+		"import_all":       true,
+		"initial_status":   "draft",
+	}
+
+	jsonData, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", tenantID)
+
+	log.Printf("Importing products from global catalog for tenant %s, business_type=%s", tenantID, businessTypeCode)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("PIM import error: %s (status: %d)", string(respBody), resp.StatusCode)
+	}
+
+	var result port.ImportProductsResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("error unmarshaling response: %w", err)
+	}
+
+	log.Printf("Imported %d products for tenant %s", result.Summary.TotalImported, tenantID)
+	return &result, nil
 }
 
 // getEnvPIM obtiene una variable de entorno con valor por defecto
