@@ -258,8 +258,8 @@ func TestVerifyEmail_WhenRepoUpdateFails_ReturnsError(t *testing.T) {
 	assert.False(t, resp.Success)
 }
 
-func TestVerifyEmail_WhenNoCodeInDB_Accepts6DigitCode(t *testing.T) {
-	// Arrange - development mode fallback
+func TestVerifyEmail_WhenNoCodeInDB_RejectsCode(t *testing.T) {
+	// Arrange
 	repo := new(mocks.MockOnboardingRepository)
 	iamClient := new(mocks.MockIAMClient)
 	uc := NewVerifyEmailUseCase(repo, iamClient)
@@ -272,7 +272,6 @@ func TestVerifyEmail_WhenNoCodeInDB_Accepts6DigitCode(t *testing.T) {
 
 	repo.On("GetProcessByID", processID).Return(process, nil)
 	repo.On("GetVerificationCodeByProcessID", processID).Return((*entity.VerificationCode)(nil), nil)
-	repo.On("UpdateProcess", mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
 
 	req := &request.VerifyEmailRequest{
 		ProcessID:        processID.String(),
@@ -285,7 +284,7 @@ func TestVerifyEmail_WhenNoCodeInDB_Accepts6DigitCode(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	assert.True(t, resp.Success)
+	assert.False(t, resp.Success)
 }
 
 func TestVerifyEmail_WithEmptyCode_ReturnsValidationError(t *testing.T) {

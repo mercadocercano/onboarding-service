@@ -56,14 +56,10 @@ func (uc *VerifyEmailUseCase) Execute(req *request.VerifyEmailRequest) (*respons
 	}
 
 	// Verificar que el proceso esté en el paso correcto (debe estar en paso 3)
-	// Comentado temporalmente para desarrollo
-	/*
-		if process.CurrentStepNumber != 3 {
-			log.Printf("Process is not in verification step. Current step: %d", process.CurrentStepNumber)
-			return response.NewVerifyEmailErrorResponse("El proceso no está en el paso de verificación", fmt.Errorf("invalid step")), nil
-		}
-	*/
-	log.Printf("Skipping step validation for development. Current step: %d", process.CurrentStepNumber)
+	if process.CurrentStepNumber != 3 {
+		log.Printf("Process is not in verification step. Current step: %d", process.CurrentStepNumber)
+		return response.NewVerifyEmailErrorResponse("El proceso no está en el paso de verificación", fmt.Errorf("invalid step")), nil
+	}
 
 	// Verificar el código con la base de datos
 	isValid, err := uc.verifyCodeWithDatabase(processUUID, req.VerificationCode)
@@ -77,8 +73,6 @@ func (uc *VerifyEmailUseCase) Execute(req *request.VerifyEmailRequest) (*respons
 		return response.NewVerifyEmailInvalidCodeResponse(req.ProcessID), nil
 	}
 
-	// Marcar paso como completado y avanzar al siguiente
-	// Para desarrollo, avanzar al siguiente paso independientemente del paso actual
 	currentStep := process.CurrentStepNumber
 	nextStep := currentStep + 1
 
@@ -110,11 +104,6 @@ func (uc *VerifyEmailUseCase) verifyCodeWithDatabase(processID uuid.UUID, code s
 
 	if verificationCode == nil {
 		log.Printf("No verification code found for process: %s", processID.String())
-		// Para desarrollo, aceptar cualquier código de 6 dígitos si no hay código en BD
-		if len(code) == 6 {
-			log.Printf("Development mode: accepting any 6-digit code: %s", code)
-			return true, nil
-		}
 		return false, nil
 	}
 
