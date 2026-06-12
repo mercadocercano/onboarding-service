@@ -1,7 +1,7 @@
 # Dockerfile.local - Build usando libs locales (sin GITHUB_TOKEN)
 # Ejecutar desde la raíz del repo: docker build -f services/onboarding-service/Dockerfile.local .
 
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
@@ -9,10 +9,10 @@ RUN apk add --no-cache git ca-certificates
 
 # Copiar código fuente del servicio y libs locales
 COPY services/onboarding-service/ ./
-COPY libs/middleware ./libs/middleware/
+COPY libs/go-shared ./libs/go-shared/
 
 # Usar lib local en lugar de GitHub (evita GITHUB_TOKEN)
-RUN echo 'replace github.com/mercadocercano/middleware => ./libs/middleware' >> go.mod
+RUN echo 'replace github.com/hornosg/go-shared => ./libs/go-shared' >> go.mod
 
 RUN go mod download
 

@@ -9,7 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
-	tenantmw "github.com/mercadocercano/middleware"
+	tenantmw "github.com/hornosg/go-shared/infrastructure/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	onboardingConfig "onboarding/src/onboarding/infrastructure/config"
