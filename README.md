@@ -2,6 +2,10 @@
 
 Servicio de onboarding simplificado para la plataforma SaaS multi-tenant que maneja el proceso completo de incorporación de nuevos socios comerciales al marketplace MercadoCercano.
 
+## 📚 Documentación
+
+Ver [`docs/`](docs/README.md) para ADRs, arquitectura de integración, setup, runbooks y guías. El contrato de API está en [`api-docs/openapi.yaml`](api-docs/openapi.yaml).
+
 ## 📋 Descripción del Servicio
 
 El **Onboarding Service** gestiona el flujo optimizado de registro de nuevos partners/socios en **6 pasos estratégicos**, diseñado bajo la filosofía: **"conseguir el registro rápido, luego guiar la configuración completa"**.
