@@ -7,8 +7,9 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"time"
+
+	"github.com/hornosg/go-shared/infrastructure/env"
 
 	"onboarding/src/onboarding/domain/port"
 	"onboarding/src/onboarding/infrastructure/auth"
@@ -31,16 +32,16 @@ func NewIAMClient() port.IAMClient {
 // NewIAMClientWithProvider crea un cliente IAM con un ServiceTokenProvider.
 // Si provider es nil, se crea uno con los env vars disponibles.
 func NewIAMClientWithProvider(provider *auth.ServiceTokenProvider) port.IAMClient {
-	baseURL := getEnv("IAM_SERVICE_URL", "http://localhost:8080")
-	systemTenantID := getEnv("SYSTEM_TENANT_ID", "123e4567-e89b-12d3-a456-426614174003")
+	baseURL := env.Get("IAM_SERVICE_URL", "http://localhost:8080")
+	systemTenantID := env.Get("SYSTEM_TENANT_ID", "123e4567-e89b-12d3-a456-426614174003")
 
 	if provider == nil {
-		jwtSecret := getEnv("JWT_SECRET", "")
-		staticToken := getEnv("IAM_SUPER_ADMIN_TOKEN", "")
+		jwtSecret := env.Get("JWT_SECRET", "")
+		staticToken := env.Get("IAM_SUPER_ADMIN_TOKEN", "")
 		provider = auth.NewServiceTokenProvider(jwtSecret, staticToken)
 	}
 
-	apiKey := getEnv("S2S_API_KEY", "")
+	apiKey := env.Get("S2S_API_KEY", "")
 
 	return &IAMHTTPClient{
 		baseURL: baseURL,
@@ -556,12 +557,4 @@ func (c *IAMHTTPClient) ValidateToken(token string) (*port.TokenValidationRespon
 	}
 
 	return &validationResponse, nil
-}
-
-// getEnv obtiene una variable de entorno con valor por defecto
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
 }

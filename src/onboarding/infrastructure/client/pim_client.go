@@ -10,6 +10,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/hornosg/go-shared/infrastructure/env"
+
 	"onboarding/src/onboarding/domain/port"
 )
 
@@ -22,7 +24,7 @@ type PIMHTTPClient struct {
 
 // NewPIMClient crea una nueva instancia del cliente PIM con autenticación S2S
 func NewPIMClient() port.PIMClient {
-	baseURL := getEnvPIM("PIM_SERVICE_URL", "http://localhost:8090")
+	baseURL := env.Get("PIM_SERVICE_URL", "http://localhost:8090")
 	apiKey := os.Getenv("S2S_API_KEY")
 
 	return &PIMHTTPClient{
@@ -420,12 +422,4 @@ func (c *PIMHTTPClient) ImportProductsFromBusinessType(tenantID, businessTypeCod
 
 	log.Printf("Imported %d products for tenant %s", result.Summary.TotalImported, tenantID)
 	return &result, nil
-}
-
-// getEnvPIM obtiene una variable de entorno con valor por defecto
-func getEnvPIM(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
 }

@@ -13,6 +13,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/hornosg/go-shared/infrastructure/env"
+
 	"onboarding/src/onboarding/domain/port"
 )
 
@@ -37,9 +39,9 @@ func NewNotificationClient(baseURL string) port.NotificationClient {
 func GenerateVerificationCode() string {
 	// Modo de testing: usar código fijo para tests automatizados
 	// Variable de entorno: TESTING_MODE=true o BYPASS_EMAIL_VERIFICATION=true
-	testingMode := getEnv("TESTING_MODE", "false")
-	bypassVerification := getEnv("BYPASS_EMAIL_VERIFICATION", "false")
-	
+	testingMode := env.Get("TESTING_MODE", "false")
+	bypassVerification := env.Get("BYPASS_EMAIL_VERIFICATION", "false")
+
 	if testingMode == "true" || bypassVerification == "true" {
 		log.Printf("⚠️ TESTING MODE: Using fixed verification code 123456")
 		return "123456"
