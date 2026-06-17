@@ -1,8 +1,6 @@
 package usecase
 
 import (
-	"log"
-
 	"github.com/google/uuid"
 
 	"onboarding/src/onboarding/application/response"
@@ -12,12 +10,21 @@ import (
 // GetProcessStatusUseCase maneja la obtención del estado del proceso de onboarding
 type GetProcessStatusUseCase struct {
 	onboardingRepo port.OnboardingRepository
+	logger         port.OnboardingEventLogger
 }
 
 // NewGetProcessStatusUseCase crea una nueva instancia del caso de uso
-func NewGetProcessStatusUseCase(onboardingRepo port.OnboardingRepository) *GetProcessStatusUseCase {
-	return &GetProcessStatusUseCase{
-		onboardingRepo: onboardingRepo,
+func NewGetProcessStatusUseCase(onboardingRepo port.OnboardingRepository, logger ...port.OnboardingEventLogger) *GetProcessStatusUseCase {
+	uc := &GetProcessStatusUseCase{onboardingRepo: onboardingRepo}
+	if len(logger) > 0 && logger[0] != nil {
+		uc.logger = logger[0]
+	}
+	return uc
+}
+
+func (uc *GetProcessStatusUseCase) log(e port.OnboardingEvent) {
+	if uc.logger != nil {
+		uc.logger.Log(e)
 	}
 }
 
@@ -26,14 +33,12 @@ func (uc *GetProcessStatusUseCase) Execute(processIDStr string) (*response.GetPr
 	// 1. Validar y parsear process ID
 	processID, err := uuid.Parse(processIDStr)
 	if err != nil {
-		log.Printf("Invalid process ID: %v", err)
 		return response.NewGetProcessStatusErrorResponse("ID de proceso inválido"), nil
 	}
 
 	// 2. Obtener proceso desde la base de datos
 	process, err := uc.onboardingRepo.GetProcessByID(processID)
 	if err != nil {
-		log.Printf("Error getting process by ID %s: %v", processIDStr, err)
 		return response.NewGetProcessStatusErrorResponse("Proceso de onboarding no encontrado"), err
 	}
 
@@ -46,8 +51,13 @@ func (uc *GetProcessStatusUseCase) Execute(processIDStr string) (*response.GetPr
 	// 4. Calcular progreso
 	progressPercent := process.GetProgress()
 
-	log.Printf("Process status retrieved: ID=%s, Status=%s, Progress=%.1f%%",
-		processIDStr, status, progressPercent)
+	uc.log(port.OnboardingEvent{
+		Event:     "onboarding.process_status_retrieved",
+		TenantID:  process.TenantID.String(),
+		UserID:    process.UserID.String(),
+		ProcessID: processIDStr,
+		Step:      process.CurrentStepNumber,
+	})
 
 	// 5. Retornar respuesta con datos reales
 	return response.NewGetProcessStatusResponse(

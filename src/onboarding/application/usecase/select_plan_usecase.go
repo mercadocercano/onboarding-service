@@ -1,8 +1,6 @@
 package usecase
 
 import (
-	"log"
-
 	"onboarding/src/onboarding/application/request"
 	"onboarding/src/onboarding/application/response"
 	"onboarding/src/onboarding/domain/port"
@@ -13,63 +11,86 @@ import (
 // SelectPlanUseCase maneja la selección de plan en el onboarding
 type SelectPlanUseCase struct {
 	onboardingRepo port.OnboardingRepository
+	logger         port.OnboardingEventLogger
 }
 
 // NewSelectPlanUseCase crea una nueva instancia del caso de uso
-func NewSelectPlanUseCase(onboardingRepo port.OnboardingRepository) *SelectPlanUseCase {
-	return &SelectPlanUseCase{
-		onboardingRepo: onboardingRepo,
+func NewSelectPlanUseCase(onboardingRepo port.OnboardingRepository, logger ...port.OnboardingEventLogger) *SelectPlanUseCase {
+	uc := &SelectPlanUseCase{onboardingRepo: onboardingRepo}
+	if len(logger) > 0 && logger[0] != nil {
+		uc.logger = logger[0]
+	}
+	return uc
+}
+
+func (uc *SelectPlanUseCase) log(e port.OnboardingEvent) {
+	if uc.logger != nil {
+		uc.logger.Log(e)
 	}
 }
 
 // Execute ejecuta el caso de uso de selección de plan
 func (uc *SelectPlanUseCase) Execute(req *request.SelectPlanRequest) (*response.SelectPlanResponse, error) {
-	log.Printf("Selecting plan for process: %s, plan: %s", req.ProcessID, req.SelectedPlan)
-
 	// 1. Validar request
 	if err := req.Validate(); err != nil {
-		log.Printf("Validation error: %v", err)
 		return response.NewSelectPlanErrorResponse(err.Error()), nil
 	}
 
 	// 2. Obtener el proceso de onboarding
 	processID, err := uuid.Parse(req.ProcessID)
 	if err != nil {
-		log.Printf("Invalid process ID: %v", err)
 		return response.NewSelectPlanErrorResponse("ID de proceso inválido"), nil
 	}
 
 	process, err := uc.onboardingRepo.GetProcessByID(processID)
 	if err != nil {
-		log.Printf("Error getting onboarding process: %v", err)
+		uc.log(port.OnboardingEvent{
+			Event:     "onboarding.plan_selection_failed",
+			ProcessID: req.ProcessID,
+			Reason:    "error getting process: " + err.Error(),
+		})
 		return response.NewSelectPlanErrorResponse("Proceso de onboarding no encontrado"), err
 	}
 
 	// 3. Validar que el proceso esté en el paso correcto (paso 5)
 	if process.CurrentStepNumber != 5 {
-		log.Printf("Process is not at step 5, current step: %d", process.CurrentStepNumber)
+		uc.log(port.OnboardingEvent{
+			Event:     "onboarding.plan_selection_failed",
+			TenantID:  process.TenantID.String(),
+			UserID:    process.UserID.String(),
+			ProcessID: req.ProcessID,
+			Step:      process.CurrentStepNumber,
+			Reason:    "process not at step 5",
+		})
 		return response.NewSelectPlanErrorResponse("El proceso no está en el paso de selección de plan"), nil
 	}
 
-	// 4. Actualizar el proceso con el plan seleccionado
-	// En este caso, simplemente agregamos el plan como parte de los datos del proceso
-	// (podrías agregar un campo SelectedPlan al entity si lo necesitas)
-
-	// Marcar paso 5 como completado
+	// 4. Marcar paso 5 como completado y avanzar al paso 6 (completar)
 	process.CompleteStep(5)
-
-	// Avanzar al paso 6 (completar)
 	process.AdvanceToStep(6)
 
 	// 5. Guardar el proceso actualizado
 	err = uc.onboardingRepo.UpdateProcess(process)
 	if err != nil {
-		log.Printf("Error updating onboarding process: %v", err)
+		uc.log(port.OnboardingEvent{
+			Event:     "onboarding.plan_selection_failed",
+			TenantID:  process.TenantID.String(),
+			UserID:    process.UserID.String(),
+			ProcessID: req.ProcessID,
+			Plan:      req.SelectedPlan,
+			Reason:    "error updating process: " + err.Error(),
+		})
 		return response.NewSelectPlanErrorResponse("Error al actualizar el proceso"), err
 	}
 
-	log.Printf("Plan selected successfully: %s for process: %s", req.SelectedPlan, req.ProcessID)
-	log.Printf("Process advanced to step: %d", process.CurrentStepNumber)
+	uc.log(port.OnboardingEvent{
+		Event:     "onboarding.plan_selected",
+		TenantID:  process.TenantID.String(),
+		UserID:    process.UserID.String(),
+		ProcessID: req.ProcessID,
+		Step:      process.CurrentStepNumber,
+		Plan:      req.SelectedPlan,
+	})
 
 	// 6. Crear respuesta exitosa
 	return response.NewSelectPlanResponse(

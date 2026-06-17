@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/google/uuid"
 
@@ -16,6 +15,7 @@ type SetupStoreUseCase struct {
 	onboardingRepo port.OnboardingRepository
 	pimClient      port.PIMClient
 	iamClient      port.IAMClient
+	logger         port.OnboardingEventLogger
 }
 
 // NewSetupStoreUseCase crea una nueva instancia del caso de uso
@@ -23,11 +23,22 @@ func NewSetupStoreUseCase(
 	onboardingRepo port.OnboardingRepository,
 	pimClient port.PIMClient,
 	iamClient port.IAMClient,
+	logger ...port.OnboardingEventLogger,
 ) *SetupStoreUseCase {
-	return &SetupStoreUseCase{
+	uc := &SetupStoreUseCase{
 		onboardingRepo: onboardingRepo,
 		pimClient:      pimClient,
 		iamClient:      iamClient,
+	}
+	if len(logger) > 0 && logger[0] != nil {
+		uc.logger = logger[0]
+	}
+	return uc
+}
+
+func (uc *SetupStoreUseCase) log(e port.OnboardingEvent) {
+	if uc.logger != nil {
+		uc.logger.Log(e)
 	}
 }
 
@@ -35,27 +46,35 @@ func NewSetupStoreUseCase(
 func (uc *SetupStoreUseCase) Execute(req *request.SetupStoreRequest) (*response.SetupStoreResponse, error) {
 	// 1. Validar request
 	if err := req.Validate(); err != nil {
-		log.Printf("Validation error: %v", err)
 		return response.NewSetupStoreErrorResponse(err.Error()), nil
 	}
 
 	// 2. Obtener el proceso de onboarding
 	processID, err := uuid.Parse(req.ProcessID)
 	if err != nil {
-		log.Printf("Invalid process ID: %v", err)
 		return response.NewSetupStoreErrorResponse("ID de proceso inválido"), nil
 	}
 
 	process, err := uc.onboardingRepo.GetProcessByID(processID)
 	if err != nil {
-		log.Printf("Error getting onboarding process: %v", err)
+		uc.log(port.OnboardingEvent{
+			Event:     "onboarding.store_setup_failed",
+			ProcessID: req.ProcessID,
+			Reason:    "error getting process: " + err.Error(),
+		})
 		return response.NewSetupStoreErrorResponse("Proceso de onboarding no encontrado"), err
 	}
 
 	// 3. Validar tipos de negocio desde PIM
 	businessTypes, err := uc.pimClient.GetBusinessTypes()
 	if err != nil {
-		log.Printf("Error getting business types from PIM: %v", err)
+		uc.log(port.OnboardingEvent{
+			Event:     "onboarding.store_setup_failed",
+			TenantID:  process.TenantID.String(),
+			UserID:    process.UserID.String(),
+			ProcessID: req.ProcessID,
+			Reason:    "error getting business types: " + err.Error(),
+		})
 		return response.NewSetupStoreErrorResponse("Error al obtener tipos de negocio"), err
 	}
 
@@ -63,12 +82,7 @@ func (uc *SetupStoreUseCase) Execute(req *request.SetupStoreRequest) (*response.
 		return response.NewSetupStoreErrorResponse("Tipo de negocio no válido"), nil
 	}
 
-	// 4. OMITIDO: Validación de categorías - ahora es opcional y se maneja en el backoffice
-	// Las categorías se configurarán después en el backoffice siguiendo la filosofía
-	// "conseguir el registro rápido, luego guiar la configuración completa"
-
-	// 5. Actualizar proceso de onboarding con información básica
-	// Si no hay categorías, pasar array vacío
+	// 4. Actualizar proceso de onboarding con información básica
 	categories := req.SelectedCategories
 	if categories == nil {
 		categories = []string{}
@@ -89,30 +103,51 @@ func (uc *SetupStoreUseCase) Execute(req *request.SetupStoreRequest) (*response.
 
 	err = uc.onboardingRepo.UpdateProcess(process)
 	if err != nil {
-		log.Printf("Error updating onboarding process: %v", err)
+		uc.log(port.OnboardingEvent{
+			Event:     "onboarding.store_setup_failed",
+			TenantID:  process.TenantID.String(),
+			UserID:    process.UserID.String(),
+			ProcessID: req.ProcessID,
+			Step:      4,
+			Reason:    "error updating process: " + err.Error(),
+		})
 		return response.NewSetupStoreErrorResponse("Error al actualizar el proceso"), err
 	}
 
-	// 6. Actualizar tenant con información del negocio
-	err = uc.updateTenantInfo(process.TenantID.String(), req)
-	if err != nil {
-		log.Printf("Error updating tenant info: %v", err)
-		// No fallar el proceso por esto, solo logear
+	// 5. Actualizar tenant con información del negocio
+	if err := uc.updateTenantInfo(process.TenantID.String(), req); err != nil {
+		uc.log(port.OnboardingEvent{
+			Event:     "onboarding.tenant_info_update_failed",
+			TenantID:  process.TenantID.String(),
+			UserID:    process.UserID.String(),
+			ProcessID: req.ProcessID,
+			Reason:    err.Error(),
+		})
+		// No fallar el proceso por esto
 	}
 
-	// 7. Aplicar configuración PIM - vincular business_type con tenant
-	err = uc.applyPIMConfiguration(process.TenantID.String(), req)
-	if err != nil {
-		log.Printf("Error applying PIM configuration: %v", err)
-		// No fallar el proceso por esto, pero logearlo como error
-		// El tenant queda configurado básicamente, pero sin el setup PIM completo
+	// 6. Aplicar configuración PIM
+	if err := uc.applyPIMConfiguration(process.TenantID.String(), req); err != nil {
+		uc.log(port.OnboardingEvent{
+			Event:     "onboarding.store_setup_failed",
+			TenantID:  process.TenantID.String(),
+			UserID:    process.UserID.String(),
+			ProcessID: req.ProcessID,
+			Reason:    "error applying PIM configuration: " + err.Error(),
+		})
+		// No fallar el proceso, el tenant queda configurado básicamente
 	}
 
-	// 8. Preparar respuesta exitosa
+	// 7. Preparar respuesta exitosa
 	businessTypeInfo := uc.getBusinessTypeInfo(req.BusinessType, businessTypes)
 
-	log.Printf("Store configured successfully: tenant=%s, store=%s, business_type=%s, categories_deferred=true",
-		process.TenantID.String(), req.StoreName, req.BusinessType)
+	uc.log(port.OnboardingEvent{
+		Event:     "onboarding.store_setup_completed",
+		TenantID:  process.TenantID.String(),
+		UserID:    process.UserID.String(),
+		ProcessID: req.ProcessID,
+		Step:      5,
+	})
 
 	return response.NewSetupStoreResponse(
 		process.ID.String(),
@@ -121,15 +156,14 @@ func (uc *SetupStoreUseCase) Execute(req *request.SetupStoreRequest) (*response.
 		businessTypeInfo,
 		req.StoreSize,
 		req.GetRecommendedPlan(),
-		categories, // Array vacío o categorías si fueron proporcionadas
-		5,          // Siguiente paso: finalización
+		categories,
+		5,
 	), nil
 }
 
 // isValidBusinessType valida que el business type existe en PIM
 func (uc *SetupStoreUseCase) isValidBusinessType(businessType string, businessTypes []*port.BusinessType) bool {
 	for _, bt := range businessTypes {
-		// Comparar tanto con ID (UUID) como con Code (ej: "retail", "almacen")
 		if bt.ID == businessType || bt.Code == businessType {
 			return true
 		}
@@ -167,12 +201,15 @@ func (uc *SetupStoreUseCase) applyPIMConfiguration(tenantID string, req *request
 	// 2. Obtener categorías sugeridas para este business type
 	suggestedCategories, err := uc.pimClient.GetCategoriesByBusinessType(req.BusinessType)
 	if err != nil {
-		log.Printf("Warning: Could not get suggested categories for business type %s: %v", req.BusinessType, err)
-		// Continuar con categorías vacías si no se pueden obtener
+		uc.log(port.OnboardingEvent{
+			Event:    "onboarding.pim_categories_fetch_failed",
+			TenantID: tenantID,
+			Reason:   err.Error(),
+		})
 		suggestedCategories = []*port.Category{}
 	}
 
-	// 3. Preparar categorías seleccionadas (por ahora usar las sugeridas)
+	// 3. Preparar categorías seleccionadas
 	selectedCategories := make([]string, 0, len(suggestedCategories))
 	for _, cat := range suggestedCategories {
 		if cat != nil && cat.ID != "" {
@@ -180,37 +217,36 @@ func (uc *SetupStoreUseCase) applyPIMConfiguration(tenantID string, req *request
 		}
 	}
 
-	// Limitar a máximo 5 categorías para el setup inicial
 	if len(selectedCategories) > 5 {
 		selectedCategories = selectedCategories[:5]
 	}
 
 	// 4. Crear configuración PIM
 	pimConfig := &port.QuickstartConfig{
-		BusinessType:       req.BusinessType,
-		StoreSize:          "small", // Por defecto pequeña para onboarding
-		SelectedCategories: selectedCategories,
-		// Los atributos y variantes se configurarán después en el backoffice
+		BusinessType:         req.BusinessType,
+		StoreSize:            "small",
+		SelectedCategories:   selectedCategories,
 		SelectedAttributes:   []string{},
 		SelectedVariants:     []string{},
-		CreateSampleProducts: false, // No crear productos de ejemplo en onboarding
+		CreateSampleProducts: false,
 	}
 
-	// 5. Aplicar la configuración en PIM (vincular business_type con tenant)
-	response, err := uc.pimClient.ApplyQuickstartTemplate(tenantID, pimConfig)
+	// 5. Aplicar la configuración en PIM
+	_, err = uc.pimClient.ApplyQuickstartTemplate(tenantID, pimConfig)
 	if err != nil {
 		return fmt.Errorf("error applying PIM quickstart template: %w", err)
 	}
 
-	log.Printf("PIM configuration applied successfully for tenant %s: %+v", tenantID, response)
-
 	// 6. Importar productos del catálogo global para este business type
 	importResp, err := uc.pimClient.ImportProductsFromBusinessType(tenantID, req.BusinessType)
 	if err != nil {
-		log.Printf("Warning: Could not import products for tenant %s: %v", tenantID, err)
+		uc.log(port.OnboardingEvent{
+			Event:    "onboarding.pim_products_import_failed",
+			TenantID: tenantID,
+			Reason:   err.Error(),
+		})
 	} else {
-		log.Printf("Imported %d products for tenant %s (business_type=%s)",
-			importResp.Summary.TotalImported, tenantID, req.BusinessType)
+		_ = importResp // importResp.Summary.TotalImported disponible si se necesita en el futuro
 	}
 
 	return nil
@@ -219,7 +255,6 @@ func (uc *SetupStoreUseCase) applyPIMConfiguration(tenantID string, req *request
 // getBusinessTypeInfo obtiene información detallada del business type
 func (uc *SetupStoreUseCase) getBusinessTypeInfo(businessType string, businessTypes []*port.BusinessType) *response.BusinessTypeInfo {
 	for _, bt := range businessTypes {
-		// Buscar por ID (UUID) o por Code (ej: "retail", "almacen")
 		if bt.ID == businessType || bt.Code == businessType {
 			return &response.BusinessTypeInfo{
 				ID:          bt.ID,
@@ -230,7 +265,6 @@ func (uc *SetupStoreUseCase) getBusinessTypeInfo(businessType string, businessTy
 		}
 	}
 
-	// Fallback si no se encuentra
 	return &response.BusinessTypeInfo{
 		ID:   businessType,
 		Name: businessType,

@@ -12,12 +12,16 @@ import (
 	"onboarding/src/onboarding/infrastructure/auth"
 	"onboarding/src/onboarding/infrastructure/client"
 	"onboarding/src/onboarding/infrastructure/controller"
+	"onboarding/src/onboarding/infrastructure/logging"
 	"onboarding/src/onboarding/infrastructure/persistence"
 )
 
 // SetupOnboardingModule configura e inicializa el módulo de onboarding
 func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 	log.Println("Setting up Onboarding module...")
+
+	// 0. Inicializar logger canónico (ADR-001)
+	eventLogger := logging.NewOnboardingLogger("onboarding")
 
 	// 1. Inicializar token provider para service-to-service auth
 	jwtSecret := os.Getenv("JWT_SECRET")
@@ -31,9 +35,8 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 	// Obtener URL del servicio de notificaciones desde variable de entorno
 	notificationServiceURL := os.Getenv("NOTIFICATION_SERVICE_URL")
 	if notificationServiceURL == "" {
-		notificationServiceURL = "http://localhost:8282/api/v1" // fallback para desarrollo local
+		notificationServiceURL = "http://localhost:8282/api/v1"
 	}
-	// Solo agregar /api/v1 si no está ya incluido
 	if !strings.Contains(notificationServiceURL, "/api/v1") {
 		notificationServiceURL += "/api/v1"
 	}
@@ -44,26 +47,26 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 	// Obtener URL del servicio de tenant desde variable de entorno
 	tenantServiceURL := os.Getenv("TENANT_SERVICE_URL")
 	if tenantServiceURL == "" {
-		tenantServiceURL = "http://localhost:8120" // fallback para desarrollo local
+		tenantServiceURL = "http://localhost:8120"
 	}
 
 	log.Printf("Using tenant service URL: %s", tenantServiceURL)
 	tenantClient := client.NewTenantClient(tenantServiceURL)
 
-	// 2. Inicializar repositorios
+	// 3. Inicializar repositorios
 	onboardingRepo := persistence.NewPostgresOnboardingRepository(db)
 
-	// 3. Inicializar casos de uso
-	startOnboardingUseCase := usecase.NewStartOnboardingUseCase(onboardingRepo)
-	registerUserUseCase := usecase.NewRegisterUserUseCase(onboardingRepo, iamClient, notificationClient)
-	verifyEmailUseCase := usecase.NewVerifyEmailUseCase(onboardingRepo, iamClient)
-	resendVerificationUseCase := usecase.NewResendVerificationUseCase(onboardingRepo, notificationClient)
-	setupStoreUseCase := usecase.NewSetupStoreUseCase(onboardingRepo, pimClient, iamClient)
-	selectPlanUseCase := usecase.NewSelectPlanUseCase(onboardingRepo)
-	completeOnboardingUseCase := usecase.NewCompleteOnboardingUseCase(onboardingRepo, notificationClient, iamClient, tenantClient)
-	getProcessStatusUseCase := usecase.NewGetProcessStatusUseCase(onboardingRepo)
+	// 4. Inicializar casos de uso con logger canónico inyectado
+	startOnboardingUseCase := usecase.NewStartOnboardingUseCase(onboardingRepo, eventLogger)
+	registerUserUseCase := usecase.NewRegisterUserUseCase(onboardingRepo, iamClient, notificationClient, eventLogger)
+	verifyEmailUseCase := usecase.NewVerifyEmailUseCase(onboardingRepo, iamClient, eventLogger)
+	resendVerificationUseCase := usecase.NewResendVerificationUseCase(onboardingRepo, notificationClient, eventLogger)
+	setupStoreUseCase := usecase.NewSetupStoreUseCase(onboardingRepo, pimClient, iamClient, eventLogger)
+	selectPlanUseCase := usecase.NewSelectPlanUseCase(onboardingRepo, eventLogger)
+	completeOnboardingUseCase := usecase.NewCompleteOnboardingUseCase(onboardingRepo, notificationClient, iamClient, tenantClient, eventLogger)
+	getProcessStatusUseCase := usecase.NewGetProcessStatusUseCase(onboardingRepo, eventLogger)
 
-	// 4. Inicializar controladores
+	// 5. Inicializar controladores
 	onboardingController := controller.NewOnboardingController(
 		startOnboardingUseCase,
 		registerUserUseCase,
@@ -77,7 +80,7 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 		onboardingRepo,
 	)
 
-	// 5. Configurar rutas
+	// 6. Configurar rutas
 	setupRoutes(router, onboardingController)
 
 	log.Println("Onboarding module setup completed successfully")
@@ -85,10 +88,8 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 
 // setupRoutes configura todas las rutas del módulo onboarding
 func setupRoutes(router *gin.RouterGroup, controller *controller.OnboardingController) {
-	// Crear grupo de rutas para onboarding
 	onboardingGroup := router.Group("/onboarding")
 	{
-		// Rutas principales del proceso de onboarding
 		onboardingGroup.POST("/start", controller.StartOnboarding)
 		onboardingGroup.POST("/register-user", controller.RegisterUser)
 		onboardingGroup.POST("/verify-email", controller.VerifyEmail)
@@ -97,25 +98,12 @@ func setupRoutes(router *gin.RouterGroup, controller *controller.OnboardingContr
 		onboardingGroup.POST("/select-plan", controller.SelectPlan)
 		onboardingGroup.POST("/complete", controller.CompleteOnboarding)
 
-		// Rutas de información y configuración
 		onboardingGroup.GET("/business-types", controller.GetBusinessTypes)
 		onboardingGroup.GET("/categories", controller.GetCategories)
 		onboardingGroup.GET("/steps", controller.GetStepDefinitions)
 
-		// Rutas de estado y seguimiento
 		onboardingGroup.GET("/process/:id", controller.GetProcessStatus)
 	}
 
-	log.Println("Onboarding routes configured:")
-	log.Println("  POST /api/v1/onboarding/start")
-	log.Println("  POST /api/v1/onboarding/register-user")
-	log.Println("  POST /api/v1/onboarding/verify-email")
-	log.Println("  POST /api/v1/onboarding/resend-verification")
-	log.Println("  POST /api/v1/onboarding/setup-store")
-	log.Println("  POST /api/v1/onboarding/select-plan")
-	log.Println("  POST /api/v1/onboarding/complete")
-	log.Println("  GET  /api/v1/onboarding/business-types")
-	log.Println("  GET  /api/v1/onboarding/categories")
-	log.Println("  GET  /api/v1/onboarding/steps")
-	log.Println("  GET  /api/v1/onboarding/process/:id")
+	log.Println("Onboarding routes configured")
 }

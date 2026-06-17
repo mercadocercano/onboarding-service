@@ -3,7 +3,6 @@ package usecase
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,70 +18,82 @@ import (
 type ResendVerificationUseCase struct {
 	onboardingRepo     port.OnboardingRepository
 	notificationClient port.NotificationClient
+	logger             port.OnboardingEventLogger
 }
 
 // NewResendVerificationUseCase crea una nueva instancia del caso de uso
 func NewResendVerificationUseCase(
 	onboardingRepo port.OnboardingRepository,
 	notificationClient port.NotificationClient,
+	logger ...port.OnboardingEventLogger,
 ) *ResendVerificationUseCase {
-	return &ResendVerificationUseCase{
+	uc := &ResendVerificationUseCase{
 		onboardingRepo:     onboardingRepo,
 		notificationClient: notificationClient,
+	}
+	if len(logger) > 0 && logger[0] != nil {
+		uc.logger = logger[0]
+	}
+	return uc
+}
+
+func (uc *ResendVerificationUseCase) log(e port.OnboardingEvent) {
+	if uc.logger != nil {
+		uc.logger.Log(e)
 	}
 }
 
 // Execute ejecuta el caso de uso de reenvío de email de verificación
 func (uc *ResendVerificationUseCase) Execute(req *request.ResendVerificationRequest) (*response.ResendVerificationResponse, error) {
-	log.Printf("Resending verification email for process: %s", req.ProcessID)
-
 	// Sanitizar y validar request
 	req.Sanitize()
 	if err := req.Validate(); err != nil {
-		log.Printf("Validation error in ResendVerification: %v", err)
 		return response.NewResendVerificationErrorResponse("Datos de solicitud inválidos", err), nil
 	}
 
 	// Convertir ProcessID a UUID
 	processUUID, err := uuid.Parse(req.ProcessID)
 	if err != nil {
-		log.Printf("Invalid process ID format: %v", err)
 		return response.NewResendVerificationErrorResponse("ID de proceso inválido", err), nil
 	}
 
 	// Obtener proceso de onboarding
 	process, err := uc.onboardingRepo.GetProcessByID(processUUID)
 	if err != nil {
-		log.Printf("Error getting process: %v", err)
 		return response.NewResendVerificationErrorResponse("Proceso no encontrado", err), nil
 	}
 
 	if process == nil {
-		log.Printf("Process not found: %s", req.ProcessID)
 		return response.NewResendVerificationErrorResponse("Proceso no encontrado", fmt.Errorf("process not found")), nil
 	}
 
 	// Verificar que el proceso esté en el paso correcto (debe estar en paso 3 - verificación)
 	if process.CurrentStepNumber != 3 {
-		log.Printf("Process is not in verification step. Current step: %d", process.CurrentStepNumber)
 		return response.NewResendVerificationErrorResponse("El proceso no está en el paso de verificación", fmt.Errorf("invalid step")), nil
 	}
 
 	// Verificar throttling: obtener el último código enviado
 	existingCode, err := uc.onboardingRepo.GetVerificationCodeByProcessID(processUUID)
 	if err != nil {
-		log.Printf("Error getting existing verification code: %v", err)
 		// Continuar sin error, ya que es para throttling
+		_ = err
 	}
 
 	// Aplicar throttling si existe un código reciente
 	if existingCode != nil {
 		timeSinceCreated := time.Since(existingCode.CreatedAt)
-		minWaitTime := 1 * time.Minute // Esperar mínimo 1 minuto entre reenvíos
+		minWaitTime := 1 * time.Minute
 
 		if timeSinceCreated < minWaitTime {
 			waitSeconds := int(minWaitTime.Seconds() - timeSinceCreated.Seconds())
-			log.Printf("Throttling resend request. Wait %d seconds", waitSeconds)
+			uc.log(port.OnboardingEvent{
+				Event:     "onboarding.verification_resend_throttled",
+				TenantID:  process.TenantID.String(),
+				UserID:    process.UserID.String(),
+				ProcessID: req.ProcessID,
+				Step:      3,
+				Reason:    fmt.Sprintf("throttled, wait %d seconds", waitSeconds),
+			})
 			return response.NewResendVerificationThrottleResponse(req.ProcessID, waitSeconds), nil
 		}
 	}
@@ -94,30 +105,41 @@ func (uc *ResendVerificationUseCase) Execute(req *request.ResendVerificationRequ
 	if existingCode != nil {
 		existingCode.MarkAsUsed()
 		if err := uc.onboardingRepo.UpdateVerificationCode(existingCode); err != nil {
-			log.Printf("Error invalidating old verification code: %v", err)
-			// No fallar por esto, solo logear
+			// No fallar por esto
+			_ = err
 		}
 	}
 
 	// Crear y guardar nuevo código
 	verificationCodeEntity := entity.NewVerificationCode(processUUID, req.Email, newVerificationCode)
 	if err := uc.onboardingRepo.SaveVerificationCode(verificationCodeEntity); err != nil {
-		log.Printf("Error saving new verification code: %v", err)
 		return response.NewResendVerificationErrorResponse("Error interno del servidor", err), err
 	}
 
 	// Obtener nombre del usuario del proceso (simplificado por ahora)
-	userName := "Usuario" // En un escenario real, obtendrías esto del proceso o usuario
+	userName := "Usuario"
 
 	// Enviar email de verificación
 	ctx := context.Background()
 	if err := uc.notificationClient.SendEmailVerification(ctx, req.Email, userName, newVerificationCode); err != nil {
-		log.Printf("Error sending verification email: %v", err)
+		uc.log(port.OnboardingEvent{
+			Event:     "onboarding.verification_email_send_failed",
+			TenantID:  process.TenantID.String(),
+			UserID:    process.UserID.String(),
+			ProcessID: req.ProcessID,
+			Step:      3,
+			Reason:    err.Error(),
+		})
 		return response.NewResendVerificationErrorResponse("Error al enviar email de verificación", err), err
 	}
 
-	log.Printf("Verification email resent successfully. Process: %s", req.ProcessID)
+	uc.log(port.OnboardingEvent{
+		Event:     "onboarding.verification_email_resent",
+		TenantID:  process.TenantID.String(),
+		UserID:    process.UserID.String(),
+		ProcessID: req.ProcessID,
+		Step:      3,
+	})
 
-	// Retornar respuesta exitosa
 	return response.NewResendVerificationSuccessResponse(req.ProcessID), nil
 }
