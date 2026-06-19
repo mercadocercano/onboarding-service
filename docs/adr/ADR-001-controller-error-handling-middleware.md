@@ -1,3 +1,15 @@
+---
+adr: ADR-001
+status: accepted
+skills:
+  implement:
+    - dev/hexagonal-go
+  verify:
+    - dev/go-hex-audit
+    - dev/code-reviewer
+  pending:   # skills aún inexistentes — ver épica EPIC roadmap
+    - dev/api-error-contract
+---
 # ADR-001: Manejo centralizado de errores en el controller vía middleware
 
 **Estado**: Aceptado

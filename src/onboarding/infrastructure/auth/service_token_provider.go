@@ -16,19 +16,32 @@ const (
 // ServiceTokenProvider genera y renueva automáticamente un JWT de servicio
 // para comunicación service-to-service con IAM.
 type ServiceTokenProvider struct {
-	jwtSecret     string
-	staticToken   string // fallback: IAM_SUPER_ADMIN_TOKEN env var
-	currentToken  string
-	expiresAt     time.Time
-	mu            sync.RWMutex
+	jwtSecret    string
+	staticToken  string // fallback: IAM_SUPER_ADMIN_TOKEN env var
+	tenantID     string // tenant de sistema firmado en el token (cierre de bypass)
+	namespace    string // namespace del proyecto firmado en el token (p. ej. "mc")
+	currentToken string
+	expiresAt    time.Time
+	mu           sync.RWMutex
 }
 
 // NewServiceTokenProvider crea un provider que auto-genera tokens.
 // Si staticToken != "", se usa como fallback (backward compatibility).
 func NewServiceTokenProvider(jwtSecret, staticToken string) *ServiceTokenProvider {
+	return NewServiceTokenProviderWithIdentity(jwtSecret, staticToken, "", "")
+}
+
+// NewServiceTokenProviderWithIdentity es como NewServiceTokenProvider pero firma además
+// los claims tenant_id y namespace en el token de servicio. Esto es lo que permite cerrar
+// el bypass de tenant (RejectMissingTenant) sin romper la auth S2S: el token de servicio
+// deja de depender de la AUSENCIA de tenant_id. El tenantID debe coincidir con el header
+// X-Tenant-ID que el cliente envía (el system tenant).
+func NewServiceTokenProviderWithIdentity(jwtSecret, staticToken, tenantID, namespace string) *ServiceTokenProvider {
 	p := &ServiceTokenProvider{
 		jwtSecret:   jwtSecret,
 		staticToken: staticToken,
+		tenantID:    tenantID,
+		namespace:   namespace,
 	}
 
 	if jwtSecret != "" {
@@ -85,6 +98,15 @@ func (p *ServiceTokenProvider) refresh() error {
 		"iss":     "iam-service",
 		"iat":     now.Unix(),
 		"exp":     exp.Unix(),
+	}
+	// Firmar tenant_id y namespace cuando están configurados, para que el token de
+	// servicio pase la validación de tenant/namespace cuando los consumidores cierren
+	// el bypass (RejectMissingTenant). Sin esto, el token dependería del bypass.
+	if p.tenantID != "" {
+		claims["tenant_id"] = p.tenantID
+	}
+	if p.namespace != "" {
+		claims["namespace"] = p.namespace
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

@@ -23,10 +23,20 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 	// 0. Inicializar logger canónico (ADR-001)
 	eventLogger := logging.NewOnboardingLogger("onboarding")
 
-	// 1. Inicializar token provider para service-to-service auth
+	// 1. Inicializar token provider para service-to-service auth.
+	//    Se firma tenant_id (system tenant, mismo valor que viaja en X-Tenant-ID) y
+	//    namespace para que el token S2S no dependa del bypass de tenant.
 	jwtSecret := os.Getenv("JWT_SECRET")
 	staticToken := os.Getenv("IAM_SUPER_ADMIN_TOKEN")
-	tokenProvider := auth.NewServiceTokenProvider(jwtSecret, staticToken)
+	systemTenantID := os.Getenv("SYSTEM_TENANT_ID")
+	if systemTenantID == "" {
+		systemTenantID = "123e4567-e89b-12d3-a456-426614174003"
+	}
+	serviceNamespace := os.Getenv("SERVICE_NAMESPACE")
+	if serviceNamespace == "" {
+		serviceNamespace = "mc"
+	}
+	tokenProvider := auth.NewServiceTokenProviderWithIdentity(jwtSecret, staticToken, systemTenantID, serviceNamespace)
 
 	// 2. Inicializar clientes externos
 	iamClient := client.NewIAMClientWithProvider(tokenProvider)

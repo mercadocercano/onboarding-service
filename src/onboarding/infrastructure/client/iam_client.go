@@ -38,7 +38,9 @@ func NewIAMClientWithProvider(provider *auth.ServiceTokenProvider) port.IAMClien
 	if provider == nil {
 		jwtSecret := env.Get("JWT_SECRET", "")
 		staticToken := env.Get("IAM_SUPER_ADMIN_TOKEN", "")
-		provider = auth.NewServiceTokenProvider(jwtSecret, staticToken)
+		serviceNamespace := env.Get("SERVICE_NAMESPACE", "mc")
+		// Mismo systemTenantID que viaja en X-Tenant-ID → el token S2S no depende del bypass.
+		provider = auth.NewServiceTokenProviderWithIdentity(jwtSecret, staticToken, systemTenantID, serviceNamespace)
 	}
 
 	apiKey := env.Get("S2S_API_KEY", "")

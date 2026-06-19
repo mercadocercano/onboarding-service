@@ -1,3 +1,13 @@
+---
+adr: ADR-002
+status: accepted
+skills:
+  implement:
+    - dev/hexagonal-go
+  verify:
+    - dev/code-reviewer
+    - dev/inter-service-contracts
+---
 # ADR-002: Compatibilidad con el formato de respuesta de roles del IAM Service
 
 **Estado**: Aceptado
