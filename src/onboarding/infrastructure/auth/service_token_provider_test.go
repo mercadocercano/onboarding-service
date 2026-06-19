@@ -41,6 +41,62 @@ func TestServiceTokenProvider_GeneratesValidJWT(t *testing.T) {
 	}
 }
 
+// TestServiceTokenProvider_WithIdentity_SignsTenantAndNamespace verifica el
+// invariante de seguridad central del cierre de bypass (RejectMissingTenant):
+// cuando se configuran tenantID/namespace, el token de servicio DEBE firmarlos
+// como claims, para que la auth S2S no dependa de la ausencia de tenant.
+func TestServiceTokenProvider_WithIdentity_SignsTenantAndNamespace(t *testing.T) {
+	secret := "test-secret-at-least-32-characters-long"
+	tenantID := "123e4567-e89b-12d3-a456-426614174003"
+	namespace := "mc"
+	provider := NewServiceTokenProviderWithIdentity(secret, "", tenantID, namespace)
+
+	claims := parseClaims(t, provider.GetToken(), secret)
+
+	if claims["tenant_id"] != tenantID {
+		t.Errorf("expected tenant_id=%s, got %v", tenantID, claims["tenant_id"])
+	}
+	if claims["namespace"] != namespace {
+		t.Errorf("expected namespace=%s, got %v", namespace, claims["namespace"])
+	}
+}
+
+// TestServiceTokenProvider_WithoutIdentity_OmitsClaims confirma el no-op seguro:
+// sin identity configurada (el camino de NewServiceTokenProvider), los claims
+// tenant_id y namespace NO deben estar presentes — el token queda idéntico al
+// comportamiento previo (backward-compat real).
+func TestServiceTokenProvider_WithoutIdentity_OmitsClaims(t *testing.T) {
+	secret := "test-secret-at-least-32-characters-long"
+	provider := NewServiceTokenProvider(secret, "")
+
+	claims := parseClaims(t, provider.GetToken(), secret)
+
+	if _, ok := claims["tenant_id"]; ok {
+		t.Errorf("expected no tenant_id claim, got %v", claims["tenant_id"])
+	}
+	if _, ok := claims["namespace"]; ok {
+		t.Errorf("expected no namespace claim, got %v", claims["namespace"])
+	}
+}
+
+// parseClaims parsea y valida el JWT, devolviendo sus claims.
+func parseClaims(t *testing.T, token, secret string) jwt.MapClaims {
+	t.Helper()
+	if token == "" {
+		t.Fatal("expected non-empty token")
+	}
+	parsed, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
+		return []byte(secret), nil
+	})
+	if err != nil {
+		t.Fatalf("failed to parse token: %v", err)
+	}
+	if !parsed.Valid {
+		t.Fatal("token is not valid")
+	}
+	return parsed.Claims.(jwt.MapClaims)
+}
+
 func TestServiceTokenProvider_FallbackToStaticToken(t *testing.T) {
 	staticToken := "static-fallback-token"
 	provider := NewServiceTokenProvider("", staticToken)
