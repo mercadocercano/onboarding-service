@@ -47,6 +47,7 @@ func main() {
 			// Rutas públicas del wizard (usuario aún no autenticado)
 			"/api/v1/onboarding/*",
 		},
+		RejectMissingTenant: true, // cierre de bypass de tenant (rollout verificado 2026-06-19)
 	}))
 
 	// Agregar middleware de manejo de errores
