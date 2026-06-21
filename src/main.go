@@ -12,10 +12,11 @@ import (
 	"github.com/hornosg/go-shared/infrastructure/env"
 	tenantmw "github.com/hornosg/go-shared/infrastructure/middleware"
 	"github.com/hornosg/go-shared/infrastructure/postgres"
+	sharedmigrate "github.com/hornosg/go-shared/migrate"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	onboardingroot "onboarding"
 	onboardingConfig "onboarding/src/onboarding/infrastructure/config"
-	"onboarding/src/onboarding/infrastructure/migration"
 	"onboarding/src/shared/middleware"
 )
 
@@ -27,8 +28,10 @@ func main() {
 	}
 	defer db.Close()
 
-	// Ejecutar migraciones automáticamente
-	if err := runMigrations(db); err != nil {
+	// Migraciones versionadas in-app (ADR-001) — golang-migrate, fail-fast.
+	// Reemplaza el migrador casero (src/onboarding/infrastructure/migration).
+	dbName := env.Get("DB_NAME", "onboarding_db")
+	if err := sharedmigrate.RunMigrations(db, onboardingroot.MigrationsFS, dbName); err != nil {
 		log.Fatalf("Error running migrations: %v", err)
 	}
 
@@ -132,11 +135,3 @@ func setupDatabase() (*sql.DB, error) {
 	return db, nil
 }
 
-// runMigrations ejecuta las migraciones de base de datos
-func runMigrations(db *sql.DB) error {
-	migrationsPath := migration.GetMigrationsPath()
-	log.Printf("Using migrations path: %s", migrationsPath)
-
-	migrator := migration.NewMigrator(db, migrationsPath)
-	return migrator.RunMigrations()
-}
