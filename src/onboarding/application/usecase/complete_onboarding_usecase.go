@@ -18,7 +18,15 @@ type CompleteOnboardingUseCase struct {
 	notificationClient port.NotificationClient
 	iamClient          port.IAMClient
 	tenantClient       port.TenantClient
+	eventPublisher     port.EventPublisher // opcional: si está, el welcome va por evento; si no, HTTP.
 	logger             port.OnboardingEventLogger
+}
+
+// WithEventPublisher inyecta el publisher del EventBus (Plan F1). Nil-safe: si no se llama,
+// el welcome email se manda por HTTP sincrónico (comportamiento legacy).
+func (uc *CompleteOnboardingUseCase) WithEventPublisher(p port.EventPublisher) *CompleteOnboardingUseCase {
+	uc.eventPublisher = p
+	return uc
 }
 
 // NewCompleteOnboardingUseCase crea una nueva instancia del caso de uso
@@ -214,7 +222,9 @@ func (uc *CompleteOnboardingUseCase) bootstrapTenantConfigAsync(process *entity.
 
 // sendWelcomeEmailAsync envía el correo de bienvenida de forma asíncrona
 func (uc *CompleteOnboardingUseCase) sendWelcomeEmailAsync(process *entity.OnboardingProcess) {
-	if uc.notificationClient == nil || uc.iamClient == nil {
+	// Necesitamos iamClient para obtener email/nombre, y al menos un canal de entrega
+	// (evento o HTTP) para mandar el welcome.
+	if uc.iamClient == nil || (uc.notificationClient == nil && uc.eventPublisher == nil) {
 		return
 	}
 
@@ -254,7 +264,20 @@ func (uc *CompleteOnboardingUseCase) sendWelcomeEmailAsync(process *entity.Onboa
 			return
 		}
 
-		err = uc.notificationClient.SendWelcomeEmail(ctx, user.Email, user.Name, process.CompanyName, process.BusinessType)
+		// Ingestión event-driven (Plan F1): si hay publisher, publicamos el evento y
+		// notification-service lo consume; si no, caemos al HTTP sincrónico legacy.
+		if uc.eventPublisher != nil {
+			err = uc.eventPublisher.PublishTenantRegistered(ctx, port.TenantRegisteredEvent{
+				TenantID:     process.TenantID.String(),
+				UserID:       process.UserID.String(),
+				Recipient:    user.Email,
+				Name:         user.Name,
+				Company:      process.CompanyName,
+				BusinessType: process.BusinessType,
+			})
+		} else {
+			err = uc.notificationClient.SendWelcomeEmail(ctx, user.Email, user.Name, process.CompanyName, process.BusinessType)
+		}
 		if err != nil {
 			uc.log(port.OnboardingEvent{
 				Event:    "onboarding.welcome_email_send_failed",

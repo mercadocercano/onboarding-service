@@ -1,17 +1,22 @@
 package config
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/hornosg/go-shared/infrastructure/postgres"
+	"github.com/mercadocercano/eventbus"
 
 	"onboarding/src/onboarding/application/usecase"
+	"onboarding/src/onboarding/domain/port"
 	"onboarding/src/onboarding/infrastructure/auth"
 	"onboarding/src/onboarding/infrastructure/client"
 	"onboarding/src/onboarding/infrastructure/controller"
+	onboardingevent "onboarding/src/onboarding/infrastructure/event"
 	"onboarding/src/onboarding/infrastructure/logging"
 	"onboarding/src/onboarding/infrastructure/persistence"
 )
@@ -74,6 +79,12 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 	setupStoreUseCase := usecase.NewSetupStoreUseCase(onboardingRepo, pimClient, iamClient, eventLogger)
 	selectPlanUseCase := usecase.NewSelectPlanUseCase(onboardingRepo, eventLogger)
 	completeOnboardingUseCase := usecase.NewCompleteOnboardingUseCase(onboardingRepo, notificationClient, iamClient, tenantClient, eventLogger)
+	// Welcome email event-driven (Plan F1): si EVENTBUS_ENABLED, el welcome se publica al
+	// EventBus y lo consume notification-service; si no, sigue por HTTP sincrónico.
+	if publisher := setupEventPublisher(serviceNamespace); publisher != nil {
+		completeOnboardingUseCase = completeOnboardingUseCase.WithEventPublisher(publisher)
+		log.Println("Onboarding welcome email: event-driven (EventBus) ENABLED")
+	}
 	getProcessStatusUseCase := usecase.NewGetProcessStatusUseCase(onboardingRepo, eventLogger)
 
 	// 5. Inicializar controladores
@@ -94,6 +105,45 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 	setupRoutes(router, onboardingController)
 
 	log.Println("Onboarding module setup completed successfully")
+}
+
+// setupEventPublisher construye el publisher del EventBus, gateado por EVENTBUS_ENABLED.
+// Best-effort: si la conexión a la DB del EventBus falla, devuelve nil → el welcome cae al
+// path HTTP legacy (no rompe el onboarding).
+func setupEventPublisher(namespace string) port.EventPublisher {
+	if os.Getenv("EVENTBUS_ENABLED") != "true" {
+		return nil
+	}
+
+	ebDB, err := postgres.Connect(postgres.Config{
+		Host:     getEnv("EVENTBUS_DB_HOST", "localhost"),
+		Port:     getEnv("EVENTBUS_DB_PORT", "5432"),
+		User:     getEnv("EVENTBUS_DB_USER", "postgres"),
+		Password: getEnv("EVENTBUS_DB_PASSWORD", "postgres"),
+		DBName:   getEnv("EVENTBUS_DB_NAME", "eventbus"),
+		SSLMode:  getEnv("EVENTBUS_DB_SSL_MODE", "disable"),
+	})
+	if err != nil {
+		log.Printf("Warning: could not connect to EventBus DB, welcome email falls back to HTTP: %v", err)
+		return nil
+	}
+
+	postgres.StartPoolMonitor(context.Background(), ebDB, postgres.MonitorOptions{
+		Service: "onboarding-service",
+		DBName:  getEnv("EVENTBUS_DB_NAME", "eventbus"),
+	})
+
+	infraLogger := eventbus.NewLogger(eventbus.LevelInfo)
+	store := eventbus.NewSQLEventStore(ebDB, infraLogger)
+	publishUC := eventbus.NewPublishEventUseCase(store, infraLogger)
+	return onboardingevent.NewEventBusPublisher(publishUC, namespace)
+}
+
+func getEnv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
 
 // setupRoutes configura todas las rutas del módulo onboarding
