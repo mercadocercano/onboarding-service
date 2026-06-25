@@ -24,7 +24,7 @@ type PIMHTTPClient struct {
 
 // NewPIMClient crea una nueva instancia del cliente PIM con autenticación S2S
 func NewPIMClient() port.PIMClient {
-	baseURL := env.Get("PIM_SERVICE_URL", "http://localhost:8090")
+	baseURL := env.Get("PIM_SERVICE_URL", "http://lab-kong:8000/pim-service")
 	apiKey := os.Getenv("S2S_API_KEY")
 
 	return &PIMHTTPClient{

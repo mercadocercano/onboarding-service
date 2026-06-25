@@ -32,7 +32,7 @@ func NewIAMClient() port.IAMClient {
 // NewIAMClientWithProvider crea un cliente IAM con un ServiceTokenProvider.
 // Si provider es nil, se crea uno con los env vars disponibles.
 func NewIAMClientWithProvider(provider *auth.ServiceTokenProvider) port.IAMClient {
-	baseURL := env.Get("IAM_SERVICE_URL", "http://localhost:8080")
+	baseURL := env.Get("IAM_SERVICE_URL", "http://lab-kong:8000/iam-service")
 	systemTenantID := env.Get("SYSTEM_TENANT_ID", "123e4567-e89b-12d3-a456-426614174003")
 
 	if provider == nil {
