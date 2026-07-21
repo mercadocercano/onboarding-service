@@ -43,7 +43,12 @@ func NewIAMClientWithProvider(provider *auth.ServiceTokenProvider) port.IAMClien
 		provider = auth.NewServiceTokenProviderWithIdentity(jwtSecret, staticToken, systemTenantID, serviceNamespace)
 	}
 
-	apiKey := env.Get("S2S_API_KEY", "")
+	// S2S scoped key para onboarding-service, registrada en IAM como service "onboarding".
+	// Fallback a S2S_API_KEY (god-key legacy) mientras se migra la infra.
+	apiKey := env.Get("S2S_KEY_ONBOARDING", "")
+	if apiKey == "" {
+		apiKey = env.Get("S2S_API_KEY", "")
+	}
 
 	return &IAMHTTPClient{
 		baseURL: baseURL,
