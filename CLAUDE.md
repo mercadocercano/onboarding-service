@@ -7,7 +7,7 @@ Guía breve para asistentes de código en el repositorio **onboarding-service** 
 Microservicio de **onboarding guiado** para nuevos socios: flujo por pasos (inicio, registro, verificación, tienda, plan, cierre) con persistencia en PostgreSQL e integración con IAM, PIM, notificaciones y tenant.
 
 Todos los servicios de plataforma (IAM, PIM, notification) se consumen vía Kong
-(`/iam-service`, `/pim-service`, `/notification-service`).
+(`/iam-service`, `/pim-service`, `/notifications`).
 
 - **Puerto por defecto**: `8110`
 - **Stack**: Go, Gin, PostgreSQL

@@ -14,7 +14,7 @@ type TenantRegisteredEvent struct {
 }
 
 // EventPublisher publica eventos de dominio de onboarding al EventBus. Reemplaza la
-// llamada HTTP sincrónica a notification-service para el welcome email (Plan F1,
+// llamada HTTP sincrónica a notifications para el welcome email (Plan F1,
 // ingestión event-driven). Es opcional: si no está cableado, el use case cae al HTTP.
 type EventPublisher interface {
 	PublishTenantRegistered(ctx context.Context, ev TenantRegisteredEvent) error

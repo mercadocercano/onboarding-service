@@ -11,7 +11,7 @@ import (
 )
 
 // EventBusPublisher implementa port.EventPublisher sobre el EventBus PostgreSQL.
-// Publica `onboarding.tenant.registered`, consumido por notification-service.
+// Publica `onboarding.tenant.registered`, consumido por notifications.
 type EventBusPublisher struct {
 	publish   *eventbus.PublishEventUseCase
 	namespace string

@@ -44,6 +44,8 @@ src/onboarding/
 │       ├── pim_client.go                # Puerto cliente PIM
 │       └── notification_client.go       # Puerto cliente Notifications
 ├── application/                         # 📝 Casos de uso
+│   ├── port/                            # Driven ports declarados por application
+│   │   └── verification.go              # Generación de códigos de verificación
 │   ├── request/
 │   │   ├── register_user_request.go     # DTO registro usuario
 │   │   ├── setup_store_request.go       # DTO configuración tienda
@@ -63,7 +65,8 @@ src/onboarding/
     ├── client/
     │   ├── iam_client.go                # Cliente HTTP para IAM Service
     │   ├── pim_client.go                # Cliente HTTP para PIM Service
-    │   └── notification_client.go       # Cliente HTTP para Notifications
+    │   ├── notification_client.go       # Cliente HTTP para Notifications
+    │   └── verification_generator.go    # Adaptador del driven port de códigos
     ├── persistence/
     │   └── postgres_onboarding_repository.go # Repositorio PostgreSQL
     ├── controller/
@@ -173,7 +176,7 @@ Request: {
   "name": "Juan Pérez",
   "email": "juan@tienda.com",
   "password": "password123",
-  "phone": "+54911234567"
+  "phone": "+549****4567"
 }
 Response: {
   "success": true,
@@ -317,21 +320,35 @@ Response: {
 
 ## 🔗 Integraciones con Servicios
 
-### 🔐 IAM Service (Puerto 8080)
+### 🔐 IAM Service
+
+URL por defecto: `http://lab-kong:8000/iam-service` (Kong). Puede sobreescribirse con `IAM_SERVICE_URL`.
 
 #### **Funcionalidades utilizadas:**
 - **POST /api/v1/tenants** - Crear tenant con información del negocio
+- **GET /api/v1/tenants/{id}** - Obtener tenant
+- **PUT /api/v1/tenants/{id}** - Actualizar tenant
+- **DELETE /api/v1/tenants/{id}** - Rollback de tenant
 - **POST /api/v1/users** - Crear usuario con rol `TENANT_ADMIN`
-- **PUT /api/v1/tenants/{id}/owner** - Asignar owner al tenant
 - **GET /api/v1/users/{id}** - Obtener información del usuario
+- **GET /api/v1/roles** - Obtener roles
+- **POST /api/v1/auth/login** - Login automático post-registro
 
 #### **Flujo de registro:**
 1. Crear tenant con datos del negocio
 2. Crear usuario administrador
-3. Asignar usuario como owner del tenant
-4. Rollback automático en caso de error
+3. Crear proceso de onboarding local
+4. Enviar email de verificación
+5. Rollback automático en caso de error
 
-### 📦 PIM Service (Puerto 8090)
+#### **Autenticación S2S**
+- Se usa `X-API-Key` con la scoped key `S2S_KEY_ONBOARDING`.
+- Fallback legacy a la god-key `S2S_API_KEY` si la scoped key no está presente.
+- El header `X-Tenant-ID` viaja con el `SYSTEM_TENANT_ID` para operaciones S2S.
+
+### 📦 PIM Service
+
+URL por defecto: `http://lab-kong:8000/pim-service`.
 
 #### **Endpoints utilizados:**
 - **GET /api/v1/quickstart/business-types** - Tipos de negocio dinámicos
@@ -341,23 +358,25 @@ Response: {
 ```json
 {
   "PIM Response": {
-    "id": "retail",                    // ✅ Identificador funcional
-    "name": "Comercio Minorista",      // ✅ Nombre descriptivo
-    "description": "Tiendas de venta...", // ✅ Descripción completa
-    "icon": "store",                   // ✅ Icono UI
-    "createdAt": "2025-06-20T18:40:28Z" // ✅ camelCase
+    "id": "retail",
+    "name": "Comercio Minorista",
+    "description": "Tiendas de venta al por menor...",
+    "icon": "store",
+    "createdAt": "2025-06-20T18:40:28Z"
   },
   "Onboarding Mapping": {
-    "id": "retail",                    // ✅ Mapeo directo
-    "name": "Comercio Minorista",      // ✅ Sin transformación
-    "is_active": true,                 // ✅ Default si no existe
-    "color": "",                       // ✅ Opcional con omitempty
-    "sort_order": 0                    // ✅ Default
+    "id": "retail",
+    "name": "Comercio Minorista",
+    "is_active": true,
+    "color": "",
+    "sort_order": 0
   }
 }
 ```
 
-### 📧 Notification Service (Puerto 8282)
+### 📧 Notification Service
+
+URL por defecto: `http://lab-kong:8000/notifications/api/v1`.
 
 #### **Emails enviados:**
 - **EMAIL_VERIFICATION** - Código de verificación de 6 dígitos
@@ -385,16 +404,15 @@ Response: {
 
 - **Go 1.22+**
 - **PostgreSQL 15+**
-- **IAM Service** funcionando en puerto 8080
-- **PIM Service** funcionando en puerto 8090
-- **Notification Service** funcionando en puerto 8282
+- **IAM Service** funcionando
+- **PIM Service** funcionando
+- **Notification Service** funcionando
 
 ### 📦 Instalación Local
 
 ```bash
-# 1. Clonar repositorio
-git clone <repository-url>
-cd services/saas-mt-onboarding-service
+# 1. Entrar al servicio
+cd services/onboarding-service
 
 # 2. Instalar dependencias
 go mod tidy
@@ -410,13 +428,14 @@ createdb onboarding_db
 psql -d onboarding_db -f migrations/001_initial_schema.sql
 psql -d onboarding_db -f migrations/002_seed_step_definitions.sql
 psql -d onboarding_db -f migrations/003_create_verification_codes.sql
-psql -d onboarding_db -f migrations/003_create_indexes.sql
 
 # 6. Ejecutar servicio
 go run src/main.go
 ```
 
 ### 📄 Variables de Entorno
+
+Ver `.env.example` para la lista completa. Las más relevantes:
 
 ```bash
 # Configuración del servidor
@@ -431,13 +450,24 @@ DB_PASSWORD=postgres
 DB_NAME=onboarding_db
 DB_SSLMODE=disable
 
-# Servicios externos
-IAM_SERVICE_URL=http://localhost:8080
-PIM_SERVICE_URL=http://localhost:8090
-NOTIFICATION_SERVICE_URL=http://localhost:8282
+# Servicios externos (Kong es el punto de entrada por defecto)
+IAM_SERVICE_URL=http://lab-kong:8000/iam-service
+PIM_SERVICE_URL=http://lab-kong:8000/pim-service
+TENANT_SERVICE_URL=http://lab-kong:8000/tenant-service
+NOTIFICATION_SERVICE_URL=http://lab-kong:8000/notifications/api/v1
 
-# Autenticación IAM (para operaciones super admin)
+# Identidad de sistema
+SERVICE_NAMESPACE=mc
+SYSTEM_TENANT_ID=123e4567-e89b-12d3-a456-426614174003
+
+# Autenticación IAM (fallback legacy; preferir S2S scoped keys)
+JWT_SECRET=your-jwt-secret
 IAM_SUPER_ADMIN_TOKEN=your-super-admin-token
+
+# S2S scoped keys
+S2S_KEY_ONBOARDING=your-32-byte-hex-key-minimum
+# Fallback legacy god-key (se usa solo si S2S_KEY_ONBOARDING no está)
+S2S_API_KEY=your-legacy-god-key
 
 # Monitoring
 PROMETHEUS_ENABLED=true
@@ -474,14 +504,14 @@ CMD ["./onboarding-service"]
 
 ```bash
 # Construcción
-docker build -t saas-mt-onboarding-service .
+docker build -t onboarding-service .
 
 # Ejecución
 docker run -p 8110:8110 \
   -e DB_HOST=host.docker.internal \
   -e IAM_SERVICE_URL=http://host.docker.internal:8080 \
   -e PIM_SERVICE_URL=http://host.docker.internal:8090 \
-  saas-mt-onboarding-service
+  onboarding-service
 
 # Con Docker Compose
 docker-compose up -d onboarding-service
@@ -489,167 +519,16 @@ docker-compose up -d onboarding-service
 
 ## 🧪 Testing y Validación
 
-### Scripts de prueba incluidos:
-
-```bash
-# Prueba completa del flujo de onboarding
-./test-simplified-setup-store.sh
-
-# Prueba específica de business types
-./debug-business-types-v2.sh
-
-# Prueba rápida de health check
-./quick-test.sh
-```
-
-### Escenarios de prueba cubiertos:
-
-1. ✅ **Health check** del servicio
-2. ✅ **Business types** desde PIM Service
-3. ✅ **Registro completo** de usuario
-4. ✅ **Verificación de email** con código
-5. ✅ **Setup de tienda** sin categorías (flujo principal)
-6. ✅ **Setup de tienda** con categorías (backward compatible)
-7. ✅ **Completar onboarding** con email de bienvenida
-8. ✅ **Validación de errores** y casos edge
-
-### Tests unitarios:
-
 ```bash
 # Ejecutar todos los tests
 go test ./...
 
-# Tests con cobertura
-go test -coverprofile=coverage.out ./...
-go tool cover -html=coverage.out
-
-# Tests específicos por módulo
-go test ./src/onboarding/application/usecase/...
-go test ./src/onboarding/infrastructure/client/...
+# Prueba completa del flujo de onboarding (si existe script local)
+./test-simplified-setup-store.sh
 ```
 
-## 📊 Monitoreo y Métricas
+## 🔒 Notas de Seguridad
 
-### Métricas de Prometheus expuestas:
-
-```
-# Métricas del servicio
-onboarding_requests_total{method, endpoint, status}
-onboarding_request_duration_seconds{method, endpoint}
-onboarding_processes_created_total
-onboarding_processes_completed_total
-onboarding_verification_codes_sent_total
-onboarding_verification_codes_validated_total
-
-# Health checks
-onboarding_service_up
-onboarding_database_connection_status
-onboarding_iam_service_status
-onboarding_pim_service_status
-```
-
-### Endpoints de salud:
-
-```bash
-# Health check básico
-curl http://localhost:8110/health
-
-# Métricas de Prometheus
-curl http://localhost:2116/metrics
-
-# Estado detallado
-curl http://localhost:8110/api/v1/health/detailed
-```
-
-## 🚀 Despliegue
-
-### Desarrollo:
-```bash
-go run src/main.go
-```
-
-### Staging:
-```bash
-go build -o onboarding-service src/main.go
-./onboarding-service
-```
-
-### Producción:
-```bash
-docker build -t onboarding-service:latest .
-docker run -d -p 8110:8110 \
-  --name onboarding-service \
-  -e ENVIRONMENT=production \
-  onboarding-service:latest
-```
-
-## 📈 Mejoras y Evolución
-
-### ✅ Cambios Recientes Implementados:
-
-1. **Setup Store Simplificado** - Categorías opcionales en onboarding inicial
-2. **Mapeo Business Types Corregido** - Sincronización real con PIM Service
-3. **Email de Bienvenida** - Automático al completar proceso
-4. **Verificación de Email** - Sistema robusto con códigos de 6 dígitos
-5. **Rollback Automático** - Recuperación ante errores de integración
-6. **Logging Mejorado** - Debugging completo del flujo
-
-### 🚧 Roadmap:
-
-- [ ] **Gamificación**: Setup wizard paso a paso en backoffice
-- [ ] **A/B Testing**: Diferentes flujos de onboarding  
-- [ ] **Analytics**: Métricas de conversión y abandono
-- [ ] **PWA**: Aplicación móvil para onboarding
-- [ ] **Webhooks**: Notificaciones a sistemas externos
-- [ ] **Multi-idioma**: Soporte para i18n
-- [ ] **Templates**: Configuraciones pre-definidas por industry
-
-### 🎯 KPIs del Servicio:
-
-- **Tiempo promedio de onboarding**: < 5 minutos
-- **Tasa de conversión**: > 85%
-- **Tasa de abandono por paso**: < 10%
-- **Tiempo de respuesta API**: < 200ms P95
-- **Disponibilidad del servicio**: > 99.9%
-
-## 🤝 Contribución
-
-### Flujo de desarrollo:
-
-1. **Fork** del repositorio
-2. **Crear rama** para feature (`git checkout -b feature/amazing-feature`)
-3. **Commit** con mensajes descriptivos (`git commit -m 'Add amazing feature'`)
-4. **Push** a la rama (`git push origin feature/amazing-feature`)
-5. **Pull Request** con descripción detallada
-
-### Estándares de código:
-
-- **Go fmt** para formateo
-- **golint** para linting
-- **Tests** obligatorios para nuevas funcionalidades
-- **Documentación** actualizada en README
-- **Logs estructurados** con contexto
-
-## 🆘 Soporte y Contacto
-
-### Para dudas técnicas:
-- **GitHub Issues**: Reportar bugs y solicitar features
-- **Documentación**: Este README como fuente de verdad
-- **Logs**: Revisar logs del servicio para debugging
-
-### Contacto del equipo:
-- **Desarrollador Principal**: Leonardo Pegorín
-- **Email**: desarrollo@mercadocercano.com
-- **Slack**: #onboarding-service
-
-## 📄 Licencia
-
-Este proyecto es propiedad de **MercadoCercano**. Todos los derechos reservados.
-
----
-
-**Versión**: 2.0.0  
-**Última actualización**: Junio 2025  
-**Mantenido por**: Equipo de Desarrollo MercadoCercano  
-**Puerto**: 8110  
-**Base de datos**: PostgreSQL 15+
+- No commitear secrets. `S2S_KEY_ONBOARDING`, `S2S_API_KEY`, `JWT_SECRET` e `IAM_SUPER_ADMIN_TOKEN` deben venir de variables de entorno.
+- La scoped key `S2S_KEY_ONBOARDING` debe tener al menos 16 bytes (recomendado 32+ bytes hex) y estar registrada en IAM con los scopes `tenant:provision` y `tenant:admin`.
+- Operaciones cross-tenant o de admin global ya no requieren `system:admin` para onboarding; IAM expone GET/PUT/DELETE `/tenants/:id` bajo el grupo tenant-scoped.
