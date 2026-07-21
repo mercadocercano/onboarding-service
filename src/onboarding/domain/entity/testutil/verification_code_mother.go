@@ -20,6 +20,7 @@ func NewVerificationCodeMother() *VerificationCodeMother {
 		code: &entity.VerificationCode{
 			ID:        uuid.New(),
 			ProcessID: uuid.New(),
+			TenantID:  uuid.New(),
 			UserEmail: "test@example.com",
 			Code:      "123456",
 			IsUsed:    false,
@@ -37,6 +38,11 @@ func (m *VerificationCodeMother) WithID(id uuid.UUID) *VerificationCodeMother {
 
 func (m *VerificationCodeMother) WithProcessID(id uuid.UUID) *VerificationCodeMother {
 	m.code.ProcessID = id
+	return m
+}
+
+func (m *VerificationCodeMother) WithTenantID(id uuid.UUID) *VerificationCodeMother {
+	m.code.TenantID = id
 	return m
 }
 

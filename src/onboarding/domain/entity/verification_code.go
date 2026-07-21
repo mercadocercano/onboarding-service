@@ -6,10 +6,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// VerificationCode representa un código de verificación de email
+// VerificationCode representa un código de verificación de email.
+// TenantID (E28/D3): scope RLS de la fila — derivado siempre del proceso ya cargado,
+// nunca de input del cliente.
 type VerificationCode struct {
 	ID        uuid.UUID `json:"id"`
 	ProcessID uuid.UUID `json:"process_id"`
+	TenantID  uuid.UUID `json:"tenant_id"`
 	UserEmail string    `json:"user_email"`
 	Code      string    `json:"code"`
 	IsUsed    bool      `json:"is_used"`
@@ -19,12 +22,13 @@ type VerificationCode struct {
 }
 
 // NewVerificationCode crea un nuevo código de verificación
-func NewVerificationCode(processID uuid.UUID, userEmail, code string) *VerificationCode {
+func NewVerificationCode(tenantID, processID uuid.UUID, userEmail, code string) *VerificationCode {
 	now := time.Now()
 
 	return &VerificationCode{
 		ID:        uuid.New(),
 		ProcessID: processID,
+		TenantID:  tenantID,
 		UserEmail: userEmail,
 		Code:      code,
 		IsUsed:    false,

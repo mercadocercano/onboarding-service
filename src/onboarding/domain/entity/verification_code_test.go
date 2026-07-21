@@ -11,17 +11,19 @@ import (
 
 func TestNewVerificationCode_WithValidData_ReturnsCode(t *testing.T) {
 	// Arrange
+	tenantID := uuid.New()
 	processID := uuid.New()
 	email := "user@example.com"
 	code := "123456"
 
 	// Act
-	vc := NewVerificationCode(processID, email, code)
+	vc := NewVerificationCode(tenantID, processID, email, code)
 
 	// Assert
 	require.NotNil(t, vc)
 	assert.NotEqual(t, uuid.Nil, vc.ID)
 	assert.Equal(t, processID, vc.ProcessID)
+	assert.Equal(t, tenantID, vc.TenantID)
 	assert.Equal(t, email, vc.UserEmail)
 	assert.Equal(t, code, vc.Code)
 	assert.False(t, vc.IsUsed)
@@ -31,7 +33,7 @@ func TestNewVerificationCode_WithValidData_ReturnsCode(t *testing.T) {
 
 func TestNewVerificationCode_ExpiresIn15Minutes(t *testing.T) {
 	// Arrange & Act
-	vc := NewVerificationCode(uuid.New(), "test@test.com", "000000")
+	vc := NewVerificationCode(uuid.New(), uuid.New(), "test@test.com", "000000")
 
 	// Assert
 	expectedExpiry := time.Now().Add(15 * time.Minute)
@@ -42,7 +44,7 @@ func TestNewVerificationCode_ExpiresIn15Minutes(t *testing.T) {
 
 func TestIsExpired_WhenNotExpired_ReturnsFalse(t *testing.T) {
 	// Arrange
-	vc := NewVerificationCode(uuid.New(), "test@test.com", "123456")
+	vc := NewVerificationCode(uuid.New(), uuid.New(), "test@test.com", "123456")
 
 	// Act & Assert
 	assert.False(t, vc.IsExpired())
@@ -50,7 +52,7 @@ func TestIsExpired_WhenNotExpired_ReturnsFalse(t *testing.T) {
 
 func TestIsExpired_WhenExpired_ReturnsTrue(t *testing.T) {
 	// Arrange
-	vc := NewVerificationCode(uuid.New(), "test@test.com", "123456")
+	vc := NewVerificationCode(uuid.New(), uuid.New(), "test@test.com", "123456")
 	vc.ExpiresAt = time.Now().Add(-1 * time.Minute)
 
 	// Act & Assert
@@ -59,7 +61,7 @@ func TestIsExpired_WhenExpired_ReturnsTrue(t *testing.T) {
 
 func TestIsValid_WhenFreshAndUnused_ReturnsTrue(t *testing.T) {
 	// Arrange
-	vc := NewVerificationCode(uuid.New(), "test@test.com", "123456")
+	vc := NewVerificationCode(uuid.New(), uuid.New(), "test@test.com", "123456")
 
 	// Act & Assert
 	assert.True(t, vc.IsValid())
@@ -67,7 +69,7 @@ func TestIsValid_WhenFreshAndUnused_ReturnsTrue(t *testing.T) {
 
 func TestIsValid_WhenUsed_ReturnsFalse(t *testing.T) {
 	// Arrange
-	vc := NewVerificationCode(uuid.New(), "test@test.com", "123456")
+	vc := NewVerificationCode(uuid.New(), uuid.New(), "test@test.com", "123456")
 	vc.MarkAsUsed()
 
 	// Act & Assert
@@ -76,7 +78,7 @@ func TestIsValid_WhenUsed_ReturnsFalse(t *testing.T) {
 
 func TestIsValid_WhenExpired_ReturnsFalse(t *testing.T) {
 	// Arrange
-	vc := NewVerificationCode(uuid.New(), "test@test.com", "123456")
+	vc := NewVerificationCode(uuid.New(), uuid.New(), "test@test.com", "123456")
 	vc.ExpiresAt = time.Now().Add(-1 * time.Minute)
 
 	// Act & Assert
@@ -85,7 +87,7 @@ func TestIsValid_WhenExpired_ReturnsFalse(t *testing.T) {
 
 func TestIsValid_WhenUsedAndExpired_ReturnsFalse(t *testing.T) {
 	// Arrange
-	vc := NewVerificationCode(uuid.New(), "test@test.com", "123456")
+	vc := NewVerificationCode(uuid.New(), uuid.New(), "test@test.com", "123456")
 	vc.MarkAsUsed()
 	vc.ExpiresAt = time.Now().Add(-1 * time.Minute)
 
@@ -95,7 +97,7 @@ func TestIsValid_WhenUsedAndExpired_ReturnsFalse(t *testing.T) {
 
 func TestMarkAsUsed_SetsIsUsedTrue(t *testing.T) {
 	// Arrange
-	vc := NewVerificationCode(uuid.New(), "test@test.com", "123456")
+	vc := NewVerificationCode(uuid.New(), uuid.New(), "test@test.com", "123456")
 
 	// Act
 	vc.MarkAsUsed()
@@ -106,7 +108,7 @@ func TestMarkAsUsed_SetsIsUsedTrue(t *testing.T) {
 
 func TestMarkAsUsed_UpdatesTimestamp(t *testing.T) {
 	// Arrange
-	vc := NewVerificationCode(uuid.New(), "test@test.com", "123456")
+	vc := NewVerificationCode(uuid.New(), uuid.New(), "test@test.com", "123456")
 	originalUpdated := vc.UpdatedAt
 	time.Sleep(1 * time.Millisecond)
 

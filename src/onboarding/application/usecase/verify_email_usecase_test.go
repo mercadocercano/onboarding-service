@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -32,10 +33,10 @@ func TestVerifyEmail_WithValidCode_ReturnsSuccess(t *testing.T) {
 		WithCode("123456").
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("GetVerificationCodeByProcessID", processID).Return(code, nil)
-	repo.On("UpdateVerificationCode", mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
-	repo.On("UpdateProcess", mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("GetVerificationCodeByProcessID", mock.Anything, mock.Anything, processID).Return(code, nil)
+	repo.On("UpdateVerificationCode", mock.Anything, mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
+	repo.On("UpdateProcess", mock.Anything, mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
 
 	req := &request.VerifyEmailRequest{
 		ProcessID:        processID.String(),
@@ -43,14 +44,14 @@ func TestVerifyEmail_WithValidCode_ReturnsSuccess(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.True(t, resp.Success)
 	assert.True(t, resp.Verified)
-	repo.AssertCalled(t, "UpdateProcess", mock.AnythingOfType("*entity.OnboardingProcess"))
+	repo.AssertCalled(t, "UpdateProcess", mock.Anything, mock.AnythingOfType("*entity.OnboardingProcess"))
 }
 
 func TestVerifyEmail_WithInvalidCode_ReturnsInvalidCodeResponse(t *testing.T) {
@@ -70,8 +71,8 @@ func TestVerifyEmail_WithInvalidCode_ReturnsInvalidCodeResponse(t *testing.T) {
 		WithCode("654321").
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("GetVerificationCodeByProcessID", processID).Return(code, nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("GetVerificationCodeByProcessID", mock.Anything, mock.Anything, processID).Return(code, nil)
 
 	req := &request.VerifyEmailRequest{
 		ProcessID:        processID.String(),
@@ -79,7 +80,7 @@ func TestVerifyEmail_WithInvalidCode_ReturnsInvalidCodeResponse(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -106,8 +107,8 @@ func TestVerifyEmail_WithExpiredCode_ReturnsFalse(t *testing.T) {
 		WithExpired().
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("GetVerificationCodeByProcessID", processID).Return(code, nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("GetVerificationCodeByProcessID", mock.Anything, mock.Anything, processID).Return(code, nil)
 
 	req := &request.VerifyEmailRequest{
 		ProcessID:        processID.String(),
@@ -115,7 +116,7 @@ func TestVerifyEmail_WithExpiredCode_ReturnsFalse(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -142,8 +143,8 @@ func TestVerifyEmail_WithUsedCode_ReturnsFalse(t *testing.T) {
 		WithUsed(true).
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("GetVerificationCodeByProcessID", processID).Return(code, nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("GetVerificationCodeByProcessID", mock.Anything, mock.Anything, processID).Return(code, nil)
 
 	req := &request.VerifyEmailRequest{
 		ProcessID:        processID.String(),
@@ -151,7 +152,7 @@ func TestVerifyEmail_WithUsedCode_ReturnsFalse(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -171,7 +172,7 @@ func TestVerifyEmail_WithEmptyProcessID_ReturnsValidationError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -191,7 +192,7 @@ func TestVerifyEmail_WithInvalidProcessID_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -206,7 +207,7 @@ func TestVerifyEmail_WhenProcessNotFound_ReturnsError(t *testing.T) {
 	uc := NewVerifyEmailUseCase(repo, iamClient)
 
 	processID := uuid.New()
-	repo.On("GetProcessByID", processID).Return((*entity.OnboardingProcess)(nil), errors.New("not found"))
+	repo.On("GetProcessByID", mock.Anything, processID).Return((*entity.OnboardingProcess)(nil), errors.New("not found"))
 
 	req := &request.VerifyEmailRequest{
 		ProcessID:        processID.String(),
@@ -214,7 +215,7 @@ func TestVerifyEmail_WhenProcessNotFound_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -239,10 +240,10 @@ func TestVerifyEmail_WhenRepoUpdateFails_ReturnsError(t *testing.T) {
 		WithCode("123456").
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("GetVerificationCodeByProcessID", processID).Return(code, nil)
-	repo.On("UpdateVerificationCode", mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
-	repo.On("UpdateProcess", mock.AnythingOfType("*entity.OnboardingProcess")).Return(errors.New("db error"))
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("GetVerificationCodeByProcessID", mock.Anything, mock.Anything, processID).Return(code, nil)
+	repo.On("UpdateVerificationCode", mock.Anything, mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
+	repo.On("UpdateProcess", mock.Anything, mock.AnythingOfType("*entity.OnboardingProcess")).Return(errors.New("db error"))
 
 	req := &request.VerifyEmailRequest{
 		ProcessID:        processID.String(),
@@ -250,7 +251,7 @@ func TestVerifyEmail_WhenRepoUpdateFails_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.Error(t, err)
@@ -270,8 +271,8 @@ func TestVerifyEmail_WhenNoCodeInDB_RejectsCode(t *testing.T) {
 		AtStep3Verification().
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("GetVerificationCodeByProcessID", processID).Return((*entity.VerificationCode)(nil), nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("GetVerificationCodeByProcessID", mock.Anything, mock.Anything, processID).Return((*entity.VerificationCode)(nil), nil)
 
 	req := &request.VerifyEmailRequest{
 		ProcessID:        processID.String(),
@@ -279,7 +280,7 @@ func TestVerifyEmail_WhenNoCodeInDB_RejectsCode(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -299,7 +300,7 @@ func TestVerifyEmail_WithEmptyCode_ReturnsValidationError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)

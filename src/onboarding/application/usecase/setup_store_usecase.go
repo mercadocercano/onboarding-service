@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -43,7 +44,7 @@ func (uc *SetupStoreUseCase) log(e port.OnboardingEvent) {
 }
 
 // Execute ejecuta la configuración de la tienda
-func (uc *SetupStoreUseCase) Execute(req *request.SetupStoreRequest) (*response.SetupStoreResponse, error) {
+func (uc *SetupStoreUseCase) Execute(ctx context.Context, req *request.SetupStoreRequest) (*response.SetupStoreResponse, error) {
 	// 1. Validar request
 	if err := req.Validate(); err != nil {
 		return response.NewSetupStoreErrorResponse(err.Error()), nil
@@ -55,7 +56,7 @@ func (uc *SetupStoreUseCase) Execute(req *request.SetupStoreRequest) (*response.
 		return response.NewSetupStoreErrorResponse("ID de proceso inválido"), nil
 	}
 
-	process, err := uc.onboardingRepo.GetProcessByID(processID)
+	process, err := uc.onboardingRepo.GetProcessByID(ctx, processID)
 	if err != nil {
 		uc.log(port.OnboardingEvent{
 			Event:     "onboarding.store_setup_failed",
@@ -101,7 +102,7 @@ func (uc *SetupStoreUseCase) Execute(req *request.SetupStoreRequest) (*response.
 	// Avanzar al paso 5 (finalización)
 	process.AdvanceToStep(5)
 
-	err = uc.onboardingRepo.UpdateProcess(process)
+	err = uc.onboardingRepo.UpdateProcess(ctx, process)
 	if err != nil {
 		uc.log(port.OnboardingEvent{
 			Event:     "onboarding.store_setup_failed",

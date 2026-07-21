@@ -50,7 +50,8 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 	// Obtener URL del servicio de notificaciones desde variable de entorno
 	notificationServiceURL := os.Getenv("NOTIFICATION_SERVICE_URL")
 	if notificationServiceURL == "" {
-		notificationServiceURL = "http://lab-kong:8000/notification-service/api/v1"
+		// Recreado como repo notifications (E23/E07, 2026-07-01): reemplaza platform/notification-service.
+		notificationServiceURL = "http://lab-kong:8000/notifications/api/v1"
 	}
 	if !strings.Contains(notificationServiceURL, "/api/v1") {
 		notificationServiceURL += "/api/v1"
@@ -58,6 +59,7 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 
 	log.Printf("Using notification service URL: %s", notificationServiceURL)
 	notificationClient := client.NewNotificationClient(notificationServiceURL)
+	codeGenerator := client.NewVerificationCodeGenerator()
 
 	// Obtener URL del servicio de tenant desde variable de entorno
 	tenantServiceURL := os.Getenv("TENANT_SERVICE_URL")
@@ -73,9 +75,9 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 
 	// 4. Inicializar casos de uso con logger canónico inyectado
 	startOnboardingUseCase := usecase.NewStartOnboardingUseCase(onboardingRepo, eventLogger)
-	registerUserUseCase := usecase.NewRegisterUserUseCase(onboardingRepo, iamClient, notificationClient, eventLogger)
+	registerUserUseCase := usecase.NewRegisterUserUseCase(onboardingRepo, iamClient, notificationClient, codeGenerator, eventLogger)
 	verifyEmailUseCase := usecase.NewVerifyEmailUseCase(onboardingRepo, iamClient, eventLogger)
-	resendVerificationUseCase := usecase.NewResendVerificationUseCase(onboardingRepo, notificationClient, eventLogger)
+	resendVerificationUseCase := usecase.NewResendVerificationUseCase(onboardingRepo, notificationClient, codeGenerator, eventLogger)
 	setupStoreUseCase := usecase.NewSetupStoreUseCase(onboardingRepo, pimClient, iamClient, eventLogger)
 	selectPlanUseCase := usecase.NewSelectPlanUseCase(onboardingRepo, eventLogger)
 	completeOnboardingUseCase := usecase.NewCompleteOnboardingUseCase(onboardingRepo, notificationClient, iamClient, tenantClient, eventLogger)

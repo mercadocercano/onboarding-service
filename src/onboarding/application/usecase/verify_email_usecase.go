@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"context"
 	"fmt"
 
 	"onboarding/src/onboarding/application/request"
@@ -36,7 +37,7 @@ func (uc *VerifyEmailUseCase) log(e port.OnboardingEvent) {
 }
 
 // Execute ejecuta el caso de uso de verificación de email
-func (uc *VerifyEmailUseCase) Execute(req *request.VerifyEmailRequest) (*response.VerifyEmailResponse, error) {
+func (uc *VerifyEmailUseCase) Execute(ctx context.Context, req *request.VerifyEmailRequest) (*response.VerifyEmailResponse, error) {
 	// Sanitizar y validar request
 	req.Sanitize()
 	if err := req.Validate(); err != nil {
@@ -50,7 +51,7 @@ func (uc *VerifyEmailUseCase) Execute(req *request.VerifyEmailRequest) (*respons
 	}
 
 	// Obtener proceso de onboarding
-	process, err := uc.onboardingRepo.GetProcessByID(processUUID)
+	process, err := uc.onboardingRepo.GetProcessByID(ctx, processUUID)
 	if err != nil {
 		uc.log(port.OnboardingEvent{
 			Event:     "onboarding.email_verification_failed",
@@ -82,8 +83,8 @@ func (uc *VerifyEmailUseCase) Execute(req *request.VerifyEmailRequest) (*respons
 		return response.NewVerifyEmailErrorResponse("El proceso no está en el paso de verificación", fmt.Errorf("invalid step")), nil
 	}
 
-	// Verificar el código con la base de datos
-	isValid, err := uc.verifyCodeWithDatabase(processUUID, req.VerificationCode)
+	// Verificar el código con la base de datos (tenant del proceso ya cargado)
+	isValid, err := uc.verifyCodeWithDatabase(ctx, process.TenantID, processUUID, req.VerificationCode)
 	if err != nil {
 		uc.log(port.OnboardingEvent{
 			Event:     "onboarding.email_verification_failed",
@@ -115,7 +116,7 @@ func (uc *VerifyEmailUseCase) Execute(req *request.VerifyEmailRequest) (*respons
 	process.AdvanceToStep(nextStep)
 
 	// Actualizar proceso en la base de datos
-	if err := uc.onboardingRepo.UpdateProcess(process); err != nil {
+	if err := uc.onboardingRepo.UpdateProcess(ctx, process); err != nil {
 		uc.log(port.OnboardingEvent{
 			Event:     "onboarding.email_verification_failed",
 			TenantID:  process.TenantID.String(),
@@ -139,8 +140,8 @@ func (uc *VerifyEmailUseCase) Execute(req *request.VerifyEmailRequest) (*respons
 }
 
 // verifyCodeWithDatabase verifica el código de verificación con la base de datos
-func (uc *VerifyEmailUseCase) verifyCodeWithDatabase(processID uuid.UUID, code string) (bool, error) {
-	verificationCode, err := uc.onboardingRepo.GetVerificationCodeByProcessID(processID)
+func (uc *VerifyEmailUseCase) verifyCodeWithDatabase(ctx context.Context, tenantID, processID uuid.UUID, code string) (bool, error) {
+	verificationCode, err := uc.onboardingRepo.GetVerificationCodeByProcessID(ctx, tenantID, processID)
 	if err != nil {
 		return false, err
 	}
@@ -159,7 +160,7 @@ func (uc *VerifyEmailUseCase) verifyCodeWithDatabase(processID uuid.UUID, code s
 
 	// Marcar código como usado
 	verificationCode.MarkAsUsed()
-	if err := uc.onboardingRepo.UpdateVerificationCode(verificationCode); err != nil {
+	if err := uc.onboardingRepo.UpdateVerificationCode(ctx, verificationCode); err != nil {
 		// No fallar la verificación por esto
 		_ = err
 	}

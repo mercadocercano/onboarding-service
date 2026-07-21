@@ -1,6 +1,8 @@
 package usecase
 
 import (
+	"context"
+
 	"github.com/google/uuid"
 
 	"onboarding/src/onboarding/application/response"
@@ -29,7 +31,7 @@ func (uc *GetProcessStatusUseCase) log(e port.OnboardingEvent) {
 }
 
 // Execute obtiene el estado actual del proceso de onboarding
-func (uc *GetProcessStatusUseCase) Execute(processIDStr string) (*response.GetProcessStatusResponse, error) {
+func (uc *GetProcessStatusUseCase) Execute(ctx context.Context, processIDStr string) (*response.GetProcessStatusResponse, error) {
 	// 1. Validar y parsear process ID
 	processID, err := uuid.Parse(processIDStr)
 	if err != nil {
@@ -37,7 +39,7 @@ func (uc *GetProcessStatusUseCase) Execute(processIDStr string) (*response.GetPr
 	}
 
 	// 2. Obtener proceso desde la base de datos
-	process, err := uc.onboardingRepo.GetProcessByID(processID)
+	process, err := uc.onboardingRepo.GetProcessByID(ctx, processID)
 	if err != nil {
 		return response.NewGetProcessStatusErrorResponse("Proceso de onboarding no encontrado"), err
 	}

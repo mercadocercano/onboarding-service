@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 
@@ -27,6 +28,17 @@ func main() {
 		log.Fatalf("Error connecting to database: %v", err)
 	}
 	defer db.Close()
+
+	// Fail-fast anti-superuser (PLAT-E28 T7, C1 CRÍTICO @dev-security, patrón E27): el runtime
+	// NUNCA debe correr como superuser/BYPASSRLS. FORCE ROW LEVEL SECURITY no aplica a superusers →
+	// con un rol privilegiado la RLS de `onboarding_processes`/`verification_codes` (identidad en
+	// el alta + email PII + códigos de verificación) queda "activa" pero nunca ejercida, sirviendo
+	// datos cross-tenant sin error visible. Abortar el arranque es la única forma fail-closed ante
+	// misconfig de credenciales. Escape hatch explícito ALLOW_SUPERUSER_DB=true solo para tareas
+	// admin locales (nunca en prod).
+	if err := assertNoRLSBypass(db); err != nil {
+		log.Fatalf("%v", err)
+	}
 
 	// Migraciones versionadas in-app (ADR-001) — golang-migrate, fail-fast.
 	// Reemplaza el migrador casero (src/onboarding/infrastructure/migration).
@@ -109,8 +121,17 @@ func setupDatabase() (*sql.DB, error) {
 	// Configuración de la base de datos desde variables de entorno
 	host := env.Get("DB_HOST", "localhost")
 	port := env.Get("DB_PORT", "5432")
-	user := env.Get("DB_USER", "postgres")
-	password := env.Get("DB_PASSWORD", "postgres")
+	// Sin default inseguro (PLAT-E28 T7, C1 @dev-security): el viejo default "postgres" es
+	// superuser → BYPASSRLS. Si el env falta o queda mal, el servicio arrancaba SIN error con la
+	// RLS de `onboarding_processes`/`verification_codes` "activa" pero nunca ejercida, sirviendo
+	// datos del alta cross-tenant. DB_USER es obligatorio y debe ser un rol NOBYPASSRLS
+	// (onboarding_app). El chequeo de rol vivo se hace en assertNoRLSBypass.
+	user := env.Get("DB_USER", "")
+	if user == "" {
+		return nil, fmt.Errorf("DB_USER is required and must be a NOBYPASSRLS application role " +
+			"(e.g. onboarding_app), never postgres — RULE-09/RULE-10, PLAT-E28 C1")
+	}
+	password := env.Get("DB_PASSWORD", "")
 	dbname := env.Get("DB_NAME", "onboarding_db")
 	sslmode := env.Get("DB_SSLMODE", "disable")
 
@@ -133,5 +154,35 @@ func setupDatabase() (*sql.DB, error) {
 
 	log.Println("Successfully connected to database")
 	return db, nil
+}
+
+// assertNoRLSBypass aborta el arranque si el rol de base de datos con el que conectamos es
+// superuser o tiene el atributo BYPASSRLS (PLAT-E28 T7, C1 CRÍTICO @dev-security). Con un rol
+// así, FORCE ROW LEVEL SECURITY no se aplica y la RLS de `onboarding_processes` y
+// `verification_codes` (identidad en el momento del alta, email PII y códigos de verificación)
+// queda inerte: el servicio serviría datos cross-tenant sin ningún error visible. Convierte ese
+// fail-OPEN silencioso en un fail-CLOSED ruidoso. ALLOW_SUPERUSER_DB=true es un escape hatch
+// explícito para tareas admin locales — jamás debe usarse en producción.
+func assertNoRLSBypass(db *sql.DB) error {
+	if env.Get("ALLOW_SUPERUSER_DB", "false") == "true" {
+		log.Println("⚠️  ALLOW_SUPERUSER_DB=true — se omite el chequeo NOBYPASSRLS (solo admin/local, NUNCA prod)")
+		return nil
+	}
+
+	var privileged bool
+	if err := db.QueryRow(
+		`SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user`,
+	).Scan(&privileged); err != nil {
+		return fmt.Errorf("no se pudo verificar los privilegios del rol de DB (current_user): %w", err)
+	}
+	if privileged {
+		return fmt.Errorf("negativa a arrancar: el rol de DB actual es SUPERUSER o BYPASSRLS y "+
+			"eludiría la row-level security de `onboarding_processes`/`verification_codes` (email "+
+			"PII + códigos de verificación — RULE-09/RULE-10, PLAT-E28 C1). Usá un rol NOBYPASSRLS "+
+			"como onboarding_app, o exportá ALLOW_SUPERUSER_DB=true solo para tareas admin locales")
+	}
+
+	log.Println("RLS guard OK: el rol de DB es NOBYPASSRLS (onboarding_processes y verification_codes protegidas por FORCE ROW LEVEL SECURITY)")
+	return nil
 }
 

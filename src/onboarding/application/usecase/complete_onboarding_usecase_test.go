@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -40,8 +41,8 @@ func TestCompleteOnboarding_WithValidRequest_ReturnsSuccess(t *testing.T) {
 		Name:  "Test User",
 	}
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("UpdateProcess", mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("UpdateProcess", mock.Anything, mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
 	iamClient.On("GetUser", process.UserID.String()).Return(userResp, nil)
 	notifClient.On("SendWelcomeEmail", mock.Anything, "test@test.com", "Test User", "Mi Tienda", "retail").Return(nil)
 	tenantClient.On("BootstrapTenantConfig", mock.Anything, process.TenantID.String()).Return(nil)
@@ -51,7 +52,7 @@ func TestCompleteOnboarding_WithValidRequest_ReturnsSuccess(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -66,7 +67,7 @@ func TestCompleteOnboarding_WithValidRequest_ReturnsSuccess(t *testing.T) {
 
 	// Esperar a que las goroutines async se ejecuten
 	time.Sleep(50 * time.Millisecond)
-	repo.AssertCalled(t, "UpdateProcess", mock.AnythingOfType("*entity.OnboardingProcess"))
+	repo.AssertCalled(t, "UpdateProcess", mock.Anything, mock.AnythingOfType("*entity.OnboardingProcess"))
 }
 
 func TestCompleteOnboarding_WithEmptyProcessID_ReturnsError(t *testing.T) {
@@ -79,7 +80,7 @@ func TestCompleteOnboarding_WithEmptyProcessID_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -97,7 +98,7 @@ func TestCompleteOnboarding_WithInvalidProcessID_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -111,14 +112,14 @@ func TestCompleteOnboarding_WhenProcessNotFound_ReturnsError(t *testing.T) {
 	uc := NewCompleteOnboardingUseCase(repo, nil, nil, nil)
 
 	processID := uuid.New()
-	repo.On("GetProcessByID", processID).Return((*entity.OnboardingProcess)(nil), errors.New("not found"))
+	repo.On("GetProcessByID", mock.Anything, processID).Return((*entity.OnboardingProcess)(nil), errors.New("not found"))
 
 	req := &request.CompleteOnboardingRequest{
 		ProcessID: processID.String(),
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.Error(t, err)
@@ -137,14 +138,14 @@ func TestCompleteOnboarding_WhenProcessNotAtStep6_ReturnsError(t *testing.T) {
 		WithCurrentStep(4). // Not at step 6
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
 
 	req := &request.CompleteOnboardingRequest{
 		ProcessID: processID.String(),
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -174,7 +175,7 @@ func TestCompleteOnboarding_WhenAlreadyCompleted_ReturnsSuccessAndSendsEmail(t *
 		Name:  "User",
 	}
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
 	iamClient.On("GetUser", process.UserID.String()).Return(userResp, nil)
 	notifClient.On("SendWelcomeEmail", mock.Anything, "user@test.com", "User", "Tienda Ya", "retail").Return(nil)
 
@@ -183,7 +184,7 @@ func TestCompleteOnboarding_WhenAlreadyCompleted_ReturnsSuccessAndSendsEmail(t *
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -205,15 +206,15 @@ func TestCompleteOnboarding_WhenRepoUpdateFails_ReturnsError(t *testing.T) {
 		AtStep6Complete().
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("UpdateProcess", mock.AnythingOfType("*entity.OnboardingProcess")).Return(errors.New("db error"))
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("UpdateProcess", mock.Anything, mock.AnythingOfType("*entity.OnboardingProcess")).Return(errors.New("db error"))
 
 	req := &request.CompleteOnboardingRequest{
 		ProcessID: processID.String(),
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.Error(t, err)
@@ -240,8 +241,8 @@ func TestCompleteOnboarding_WithNilTenantClient_DoesNotPanic(t *testing.T) {
 		Name:  "Test",
 	}
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("UpdateProcess", mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("UpdateProcess", mock.Anything, mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
 	iamClient.On("GetUser", process.UserID.String()).Return(userResp, nil)
 	notifClient.On("SendWelcomeEmail", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
@@ -250,7 +251,7 @@ func TestCompleteOnboarding_WithNilTenantClient_DoesNotPanic(t *testing.T) {
 	}
 
 	// Act - should not panic
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)

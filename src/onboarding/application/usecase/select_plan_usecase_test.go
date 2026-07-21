@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -26,8 +27,8 @@ func TestSelectPlan_WithValidRequest_ReturnsSuccess(t *testing.T) {
 		AtStep5SelectPlan().
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("UpdateProcess", mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("UpdateProcess", mock.Anything, mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
 
 	req := &request.SelectPlanRequest{
 		ProcessID:    processID.String(),
@@ -35,7 +36,7 @@ func TestSelectPlan_WithValidRequest_ReturnsSuccess(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -56,7 +57,7 @@ func TestSelectPlan_WithInvalidPlan_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -75,7 +76,7 @@ func TestSelectPlan_WithEmptyProcessID_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -94,7 +95,7 @@ func TestSelectPlan_WithInvalidProcessID_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -108,7 +109,7 @@ func TestSelectPlan_WhenProcessNotFound_ReturnsError(t *testing.T) {
 	uc := NewSelectPlanUseCase(repo)
 
 	processID := uuid.New()
-	repo.On("GetProcessByID", processID).Return((*entity.OnboardingProcess)(nil), errors.New("not found"))
+	repo.On("GetProcessByID", mock.Anything, processID).Return((*entity.OnboardingProcess)(nil), errors.New("not found"))
 
 	req := &request.SelectPlanRequest{
 		ProcessID:    processID.String(),
@@ -116,7 +117,7 @@ func TestSelectPlan_WhenProcessNotFound_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.Error(t, err)
@@ -135,7 +136,7 @@ func TestSelectPlan_WhenProcessNotAtStep5_ReturnsError(t *testing.T) {
 		WithCurrentStep(3). // Not at step 5
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
 
 	req := &request.SelectPlanRequest{
 		ProcessID:    processID.String(),
@@ -143,7 +144,7 @@ func TestSelectPlan_WhenProcessNotAtStep5_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -162,8 +163,8 @@ func TestSelectPlan_WhenRepoUpdateFails_ReturnsError(t *testing.T) {
 		AtStep5SelectPlan().
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("UpdateProcess", mock.AnythingOfType("*entity.OnboardingProcess")).Return(errors.New("db error"))
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("UpdateProcess", mock.Anything, mock.AnythingOfType("*entity.OnboardingProcess")).Return(errors.New("db error"))
 
 	req := &request.SelectPlanRequest{
 		ProcessID:    processID.String(),
@@ -171,7 +172,7 @@ func TestSelectPlan_WhenRepoUpdateFails_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.Error(t, err)
@@ -194,8 +195,8 @@ func TestSelectPlan_WithAllValidPlans_Succeeds(t *testing.T) {
 				AtStep5SelectPlan().
 				Build()
 
-			repo.On("GetProcessByID", processID).Return(process, nil)
-			repo.On("UpdateProcess", mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
+			repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+			repo.On("UpdateProcess", mock.Anything, mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
 
 			req := &request.SelectPlanRequest{
 				ProcessID:    processID.String(),
@@ -203,7 +204,7 @@ func TestSelectPlan_WithAllValidPlans_Succeeds(t *testing.T) {
 			}
 
 			// Act
-			resp, err := uc.Execute(req)
+			resp, err := uc.Execute(context.Background(), req)
 
 			// Assert
 			require.NoError(t, err)

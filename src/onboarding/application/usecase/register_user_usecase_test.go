@@ -1,9 +1,11 @@
 package usecase
 
 import (
+	"context"
 	"errors"
 	"testing"
 
+	appmocks "onboarding/src/onboarding/application/port/mocks"
 	"onboarding/src/onboarding/application/request"
 	"onboarding/src/onboarding/domain/port"
 	"onboarding/src/onboarding/domain/port/mocks"
@@ -28,7 +30,8 @@ func TestRegisterUser_WithValidRequest_ReturnsSuccess(t *testing.T) {
 	repo := new(mocks.MockOnboardingRepository)
 	iamClient := new(mocks.MockIAMClient)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewRegisterUserUseCase(repo, iamClient, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewRegisterUserUseCase(repo, iamClient, notifClient, codeGen)
 
 	roleID := uuid.New().String()
 	tenantID := uuid.New().String()
@@ -43,8 +46,9 @@ func TestRegisterUser_WithValidRequest_ReturnsSuccess(t *testing.T) {
 	iamClient.On("CreateUser", mock.AnythingOfType("*port.CreateUserRequest")).Return(&port.UserResponse{
 		ID: userID, Email: "test@example.com", Name: "Test User",
 	}, nil)
-	repo.On("SaveProcess", mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
-	repo.On("SaveVerificationCode", mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
+	repo.On("SaveProcess", mock.Anything, mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
+	repo.On("SaveVerificationCode", mock.Anything, mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
+	codeGen.On("Generate").Return("123456")
 	notifClient.On("SendEmailVerification", mock.Anything, "test@example.com", "Test User", mock.AnythingOfType("string")).Return(nil)
 	iamClient.On("Login", mock.AnythingOfType("*port.LoginRequest")).Return(&port.LoginResponse{
 		AccessToken: "jwt-token", RefreshToken: "refresh-token",
@@ -53,7 +57,7 @@ func TestRegisterUser_WithValidRequest_ReturnsSuccess(t *testing.T) {
 	req := newValidRegisterRequest()
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -71,13 +75,14 @@ func TestRegisterUser_WithEmptyName_ReturnsValidationError(t *testing.T) {
 	repo := new(mocks.MockOnboardingRepository)
 	iamClient := new(mocks.MockIAMClient)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewRegisterUserUseCase(repo, iamClient, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewRegisterUserUseCase(repo, iamClient, notifClient, codeGen)
 
 	req := newValidRegisterRequest()
 	req.Name = ""
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -90,13 +95,14 @@ func TestRegisterUser_WithInvalidEmail_ReturnsValidationError(t *testing.T) {
 	repo := new(mocks.MockOnboardingRepository)
 	iamClient := new(mocks.MockIAMClient)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewRegisterUserUseCase(repo, iamClient, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewRegisterUserUseCase(repo, iamClient, notifClient, codeGen)
 
 	req := newValidRegisterRequest()
 	req.Email = "not-an-email"
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -109,14 +115,15 @@ func TestRegisterUser_WithShortPassword_ReturnsValidationError(t *testing.T) {
 	repo := new(mocks.MockOnboardingRepository)
 	iamClient := new(mocks.MockIAMClient)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewRegisterUserUseCase(repo, iamClient, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewRegisterUserUseCase(repo, iamClient, notifClient, codeGen)
 
 	req := newValidRegisterRequest()
 	req.Password = "short1"
 	req.ConfirmPassword = "short1"
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -129,13 +136,14 @@ func TestRegisterUser_WithMismatchedPasswords_ReturnsValidationError(t *testing.
 	repo := new(mocks.MockOnboardingRepository)
 	iamClient := new(mocks.MockIAMClient)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewRegisterUserUseCase(repo, iamClient, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewRegisterUserUseCase(repo, iamClient, notifClient, codeGen)
 
 	req := newValidRegisterRequest()
 	req.ConfirmPassword = "different123"
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -148,14 +156,15 @@ func TestRegisterUser_WithPasswordNoNumbers_ReturnsValidationError(t *testing.T)
 	repo := new(mocks.MockOnboardingRepository)
 	iamClient := new(mocks.MockIAMClient)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewRegisterUserUseCase(repo, iamClient, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewRegisterUserUseCase(repo, iamClient, notifClient, codeGen)
 
 	req := newValidRegisterRequest()
 	req.Password = "passwordonly"
 	req.ConfirmPassword = "passwordonly"
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -167,14 +176,15 @@ func TestRegisterUser_WhenGetRoleFails_ReturnsError(t *testing.T) {
 	repo := new(mocks.MockOnboardingRepository)
 	iamClient := new(mocks.MockIAMClient)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewRegisterUserUseCase(repo, iamClient, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewRegisterUserUseCase(repo, iamClient, notifClient, codeGen)
 
 	iamClient.On("GetRoleByType", "TENANT_ADMIN").Return(nil, errors.New("iam error"))
 
 	req := newValidRegisterRequest()
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.Error(t, err)
@@ -187,7 +197,8 @@ func TestRegisterUser_WhenCreateTenantFails_ReturnsError(t *testing.T) {
 	repo := new(mocks.MockOnboardingRepository)
 	iamClient := new(mocks.MockIAMClient)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewRegisterUserUseCase(repo, iamClient, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewRegisterUserUseCase(repo, iamClient, notifClient, codeGen)
 
 	iamClient.On("GetRoleByType", "TENANT_ADMIN").Return(&port.RoleResponse{
 		ID: uuid.New().String(), Type: "TENANT_ADMIN",
@@ -197,7 +208,7 @@ func TestRegisterUser_WhenCreateTenantFails_ReturnsError(t *testing.T) {
 	req := newValidRegisterRequest()
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.Error(t, err)
@@ -210,7 +221,8 @@ func TestRegisterUser_WhenCreateUserFails_DeletesTenantAndReturnsError(t *testin
 	repo := new(mocks.MockOnboardingRepository)
 	iamClient := new(mocks.MockIAMClient)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewRegisterUserUseCase(repo, iamClient, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewRegisterUserUseCase(repo, iamClient, notifClient, codeGen)
 
 	tenantID := uuid.New().String()
 
@@ -226,7 +238,7 @@ func TestRegisterUser_WhenCreateUserFails_DeletesTenantAndReturnsError(t *testin
 	req := newValidRegisterRequest()
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.Error(t, err)
@@ -240,7 +252,8 @@ func TestRegisterUser_WhenLoginFails_StillReturnsSuccess(t *testing.T) {
 	repo := new(mocks.MockOnboardingRepository)
 	iamClient := new(mocks.MockIAMClient)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewRegisterUserUseCase(repo, iamClient, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewRegisterUserUseCase(repo, iamClient, notifClient, codeGen)
 
 	iamClient.On("GetRoleByType", "TENANT_ADMIN").Return(&port.RoleResponse{
 		ID: uuid.New().String(), Type: "TENANT_ADMIN",
@@ -251,15 +264,16 @@ func TestRegisterUser_WhenLoginFails_StillReturnsSuccess(t *testing.T) {
 	iamClient.On("CreateUser", mock.AnythingOfType("*port.CreateUserRequest")).Return(&port.UserResponse{
 		ID: uuid.New().String(), Email: "test@example.com", Name: "Test User",
 	}, nil)
-	repo.On("SaveProcess", mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
-	repo.On("SaveVerificationCode", mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
+	repo.On("SaveProcess", mock.Anything, mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
+	repo.On("SaveVerificationCode", mock.Anything, mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
+	codeGen.On("Generate").Return("123456")
 	notifClient.On("SendEmailVerification", mock.Anything, "test@example.com", "Test User", mock.AnythingOfType("string")).Return(nil)
 	iamClient.On("Login", mock.AnythingOfType("*port.LoginRequest")).Return(nil, errors.New("login error"))
 
 	req := newValidRegisterRequest()
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)

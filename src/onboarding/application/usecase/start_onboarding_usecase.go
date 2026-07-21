@@ -1,6 +1,8 @@
 package usecase
 
 import (
+	"context"
+
 	"onboarding/src/onboarding/application/request"
 	"onboarding/src/onboarding/application/response"
 	"onboarding/src/onboarding/domain/port"
@@ -30,7 +32,7 @@ func (uc *StartOnboardingUseCase) log(e port.OnboardingEvent) {
 }
 
 // Execute ejecuta el caso de uso de inicio de onboarding
-func (uc *StartOnboardingUseCase) Execute(req *request.StartOnboardingRequest) (*response.StartOnboardingResponse, error) {
+func (uc *StartOnboardingUseCase) Execute(_ context.Context, req *request.StartOnboardingRequest) (*response.StartOnboardingResponse, error) {
 	// Validar request
 	if err := req.Validate(); err != nil {
 		return response.NewStartOnboardingErrorResponse("Datos de solicitud inválidos", err), nil

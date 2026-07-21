@@ -1,7 +1,9 @@
 package usecase
 
 import (
+	"context"
 	"errors"
+	"github.com/stretchr/testify/mock"
 	"testing"
 
 	"onboarding/src/onboarding/domain/entity/testutil"
@@ -24,10 +26,10 @@ func TestGetProcessStatus_WithValidID_ReturnsStatus(t *testing.T) {
 		WithStepsCompleted([]int{1, 2}).
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
 
 	// Act
-	resp, err := uc.Execute(processID.String())
+	resp, err := uc.Execute(context.Background(), processID.String())
 
 	// Assert
 	require.NoError(t, err)
@@ -51,10 +53,10 @@ func TestGetProcessStatus_WhenCompleted_ReturnsCompleted(t *testing.T) {
 		WithStepsCompleted([]int{1, 2, 3, 4, 5}).
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
 
 	// Act
-	resp, err := uc.Execute(processID.String())
+	resp, err := uc.Execute(context.Background(), processID.String())
 
 	// Assert
 	require.NoError(t, err)
@@ -70,7 +72,7 @@ func TestGetProcessStatus_WithInvalidID_ReturnsError(t *testing.T) {
 	uc := NewGetProcessStatusUseCase(repo)
 
 	// Act
-	resp, err := uc.Execute("invalid-uuid")
+	resp, err := uc.Execute(context.Background(), "invalid-uuid")
 
 	// Assert
 	require.NoError(t, err)
@@ -84,10 +86,10 @@ func TestGetProcessStatus_WhenRepoFails_ReturnsError(t *testing.T) {
 	uc := NewGetProcessStatusUseCase(repo)
 
 	processID := uuid.New()
-	repo.On("GetProcessByID", processID).Return(nil, errors.New("db error"))
+	repo.On("GetProcessByID", mock.Anything, processID).Return(nil, errors.New("db error"))
 
 	// Act
-	resp, err := uc.Execute(processID.String())
+	resp, err := uc.Execute(context.Background(), processID.String())
 
 	// Assert
 	require.Error(t, err)

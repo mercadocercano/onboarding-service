@@ -56,7 +56,7 @@ func (uc *CompleteOnboardingUseCase) log(e port.OnboardingEvent) {
 }
 
 // Execute ejecuta el caso de uso de completar onboarding
-func (uc *CompleteOnboardingUseCase) Execute(req *request.CompleteOnboardingRequest) (*response.CompleteOnboardingResponse, error) {
+func (uc *CompleteOnboardingUseCase) Execute(ctx context.Context, req *request.CompleteOnboardingRequest) (*response.CompleteOnboardingResponse, error) {
 	// 1. Validar request
 	if err := req.Validate(); err != nil {
 		return response.NewCompleteOnboardingErrorResponse(err.Error()), nil
@@ -68,7 +68,7 @@ func (uc *CompleteOnboardingUseCase) Execute(req *request.CompleteOnboardingRequ
 		return response.NewCompleteOnboardingErrorResponse("ID de proceso inválido"), nil
 	}
 
-	process, err := uc.onboardingRepo.GetProcessByID(processID)
+	process, err := uc.onboardingRepo.GetProcessByID(ctx, processID)
 	if err != nil {
 		uc.log(port.OnboardingEvent{
 			Event:     "onboarding.completion_failed",
@@ -124,7 +124,7 @@ func (uc *CompleteOnboardingUseCase) Execute(req *request.CompleteOnboardingRequ
 	process.StepsPending = []int{}
 
 	// 6. Guardar el proceso actualizado
-	err = uc.onboardingRepo.UpdateProcess(process)
+	err = uc.onboardingRepo.UpdateProcess(ctx, process)
 	if err != nil {
 		uc.log(port.OnboardingEvent{
 			Event:     "onboarding.completion_failed",
@@ -265,7 +265,7 @@ func (uc *CompleteOnboardingUseCase) sendWelcomeEmailAsync(process *entity.Onboa
 		}
 
 		// Ingestión event-driven (Plan F1): si hay publisher, publicamos el evento y
-		// notification-service lo consume; si no, caemos al HTTP sincrónico legacy.
+		// notifications lo consume; si no, caemos al HTTP sincrónico legacy.
 		if uc.eventPublisher != nil {
 			err = uc.eventPublisher.PublishTenantRegistered(ctx, port.TenantRegisteredEvent{
 				TenantID:     process.TenantID.String(),

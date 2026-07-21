@@ -1,8 +1,9 @@
 package mocks
 
 import (
+	"context"
+
 	"onboarding/src/onboarding/domain/entity"
-	"onboarding/src/onboarding/domain/port"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -13,125 +14,54 @@ type MockOnboardingRepository struct {
 	mock.Mock
 }
 
-func (m *MockOnboardingRepository) SaveProcess(process *entity.OnboardingProcess) error {
-	args := m.Called(process)
+func (m *MockOnboardingRepository) SaveProcess(ctx context.Context, process *entity.OnboardingProcess) error {
+	args := m.Called(ctx, process)
 	return args.Error(0)
 }
 
-func (m *MockOnboardingRepository) GetProcessByID(id uuid.UUID) (*entity.OnboardingProcess, error) {
-	args := m.Called(id)
+func (m *MockOnboardingRepository) GetProcessByID(ctx context.Context, id uuid.UUID) (*entity.OnboardingProcess, error) {
+	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*entity.OnboardingProcess), args.Error(1)
 }
 
-func (m *MockOnboardingRepository) GetProcessByTenantID(tenantID uuid.UUID) (*entity.OnboardingProcess, error) {
-	args := m.Called(tenantID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*entity.OnboardingProcess), args.Error(1)
-}
-
-func (m *MockOnboardingRepository) GetProcessByUserID(userID uuid.UUID) (*entity.OnboardingProcess, error) {
-	args := m.Called(userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*entity.OnboardingProcess), args.Error(1)
-}
-
-func (m *MockOnboardingRepository) UpdateProcess(process *entity.OnboardingProcess) error {
-	args := m.Called(process)
+func (m *MockOnboardingRepository) UpdateProcess(ctx context.Context, process *entity.OnboardingProcess) error {
+	args := m.Called(ctx, process)
 	return args.Error(0)
 }
 
-func (m *MockOnboardingRepository) DeleteProcess(id uuid.UUID) error {
-	args := m.Called(id)
-	return args.Error(0)
-}
-
-func (m *MockOnboardingRepository) GetStepDefinitions() ([]*entity.StepDefinition, error) {
-	args := m.Called()
+func (m *MockOnboardingRepository) GetStepDefinitions(ctx context.Context) ([]*entity.StepDefinition, error) {
+	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]*entity.StepDefinition), args.Error(1)
 }
 
-func (m *MockOnboardingRepository) GetStepDefinitionByNumber(stepNumber int) (*entity.StepDefinition, error) {
-	args := m.Called(stepNumber)
+func (m *MockOnboardingRepository) GetStepDefinitionByNumber(ctx context.Context, stepNumber int) (*entity.StepDefinition, error) {
+	args := m.Called(ctx, stepNumber)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*entity.StepDefinition), args.Error(1)
 }
 
-func (m *MockOnboardingRepository) SaveStepDefinition(stepDef *entity.StepDefinition) error {
-	args := m.Called(stepDef)
+func (m *MockOnboardingRepository) SaveVerificationCode(ctx context.Context, code *entity.VerificationCode) error {
+	args := m.Called(ctx, code)
 	return args.Error(0)
 }
 
-func (m *MockOnboardingRepository) SaveVerificationCode(code *entity.VerificationCode) error {
-	args := m.Called(code)
-	return args.Error(0)
-}
-
-func (m *MockOnboardingRepository) GetVerificationCodeByProcessID(processID uuid.UUID) (*entity.VerificationCode, error) {
-	args := m.Called(processID)
+func (m *MockOnboardingRepository) GetVerificationCodeByProcessID(ctx context.Context, tenantID, processID uuid.UUID) (*entity.VerificationCode, error) {
+	args := m.Called(ctx, tenantID, processID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*entity.VerificationCode), args.Error(1)
 }
 
-func (m *MockOnboardingRepository) GetVerificationCodeByCode(code string) (*entity.VerificationCode, error) {
-	args := m.Called(code)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*entity.VerificationCode), args.Error(1)
-}
-
-func (m *MockOnboardingRepository) UpdateVerificationCode(code *entity.VerificationCode) error {
-	args := m.Called(code)
+func (m *MockOnboardingRepository) UpdateVerificationCode(ctx context.Context, code *entity.VerificationCode) error {
+	args := m.Called(ctx, code)
 	return args.Error(0)
-}
-
-func (m *MockOnboardingRepository) DeleteExpiredVerificationCodes() error {
-	args := m.Called()
-	return args.Error(0)
-}
-
-func (m *MockOnboardingRepository) GetActiveProcesses() ([]*entity.OnboardingProcess, error) {
-	args := m.Called()
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*entity.OnboardingProcess), args.Error(1)
-}
-
-func (m *MockOnboardingRepository) GetCompletedProcesses() ([]*entity.OnboardingProcess, error) {
-	args := m.Called()
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*entity.OnboardingProcess), args.Error(1)
-}
-
-func (m *MockOnboardingRepository) GetProcessesByDateRange(startDate, endDate string) ([]*entity.OnboardingProcess, error) {
-	args := m.Called(startDate, endDate)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*entity.OnboardingProcess), args.Error(1)
-}
-
-func (m *MockOnboardingRepository) GetProcessStats() (*port.ProcessStats, error) {
-	args := m.Called()
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*port.ProcessStats), args.Error(1)
 }

@@ -1,6 +1,8 @@
 package usecase
 
 import (
+	"context"
+
 	"onboarding/src/onboarding/application/request"
 	"onboarding/src/onboarding/application/response"
 	"onboarding/src/onboarding/domain/port"
@@ -30,7 +32,7 @@ func (uc *SelectPlanUseCase) log(e port.OnboardingEvent) {
 }
 
 // Execute ejecuta el caso de uso de selección de plan
-func (uc *SelectPlanUseCase) Execute(req *request.SelectPlanRequest) (*response.SelectPlanResponse, error) {
+func (uc *SelectPlanUseCase) Execute(ctx context.Context, req *request.SelectPlanRequest) (*response.SelectPlanResponse, error) {
 	// 1. Validar request
 	if err := req.Validate(); err != nil {
 		return response.NewSelectPlanErrorResponse(err.Error()), nil
@@ -42,7 +44,7 @@ func (uc *SelectPlanUseCase) Execute(req *request.SelectPlanRequest) (*response.
 		return response.NewSelectPlanErrorResponse("ID de proceso inválido"), nil
 	}
 
-	process, err := uc.onboardingRepo.GetProcessByID(processID)
+	process, err := uc.onboardingRepo.GetProcessByID(ctx, processID)
 	if err != nil {
 		uc.log(port.OnboardingEvent{
 			Event:     "onboarding.plan_selection_failed",
@@ -70,7 +72,7 @@ func (uc *SelectPlanUseCase) Execute(req *request.SelectPlanRequest) (*response.
 	process.AdvanceToStep(6)
 
 	// 5. Guardar el proceso actualizado
-	err = uc.onboardingRepo.UpdateProcess(process)
+	err = uc.onboardingRepo.UpdateProcess(ctx, process)
 	if err != nil {
 		uc.log(port.OnboardingEvent{
 			Event:     "onboarding.plan_selection_failed",

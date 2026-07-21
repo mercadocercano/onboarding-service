@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -20,7 +21,7 @@ func TestStartOnboarding_WithValidRequest_ReturnsSuccess(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -38,7 +39,7 @@ func TestStartOnboarding_WithEmptySource_SetsDefault(t *testing.T) {
 	req := &request.StartOnboardingRequest{}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -55,7 +56,7 @@ func TestStartOnboarding_WithSourceTooLong_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -72,7 +73,7 @@ func TestStartOnboarding_WithUTMTooLong_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -89,7 +90,7 @@ func TestStartOnboarding_WithReferrerTooLong_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)

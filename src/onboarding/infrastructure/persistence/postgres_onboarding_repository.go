@@ -1,35 +1,46 @@
 package persistence
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"log"
 
 	"github.com/google/uuid"
+	"github.com/hornosg/go-shared/infrastructure/postgres"
 
 	"onboarding/src/onboarding/domain/entity"
 	"onboarding/src/onboarding/domain/port"
 )
 
-// PostgresOnboardingRepository implementa OnboardingRepository usando PostgreSQL
+// PostgresOnboardingRepository implementa OnboardingRepository usando PostgreSQL.
+//
+// RLS (E28, RULE-09/RULE-10): `onboarding_processes` y `verification_codes` tienen ROW
+// LEVEL SECURITY forzado con la policy `tenant_isolation` (migración 006). Cada operación
+// sobre esas tablas corre dentro de postgres.WithRLSInTransaction, que fija `app.tenant_id`
+// con SET LOCAL — sin él, cualquier query erra (fail-closed) bajo el rol NOBYPASSRLS
+// `onboarding_app`. El filtro manual `WHERE ... = $` se mantiene como defensa en
+// profundidad (la policy ya lo garantiza).
+//
+// El wizard es PRE-AUTH: no hay JWT del cual sacar el tenant. GetProcessByID resuelve el
+// tenant en dos pasos (D1): primero la función SECURITY DEFINER
+// `onboarding_tenant_for_process` (migración 006) mapea el process_id — capability UUID no
+// adivinable — al tenant_id, y recién entonces la query real corre bajo el scope RLS de ese
+// tenant. `onboarding_step_definitions` es catálogo GLOBAL sin RLS (legible pre-auth por
+// diseño) y se consulta sin transacción RLS.
 type PostgresOnboardingRepository struct {
 	db *sql.DB
 }
 
-// NewPostgresOnboardingRepository crea una nueva instancia del repositorio
+// NewPostgresOnboardingRepository crea una nueva instancia del repositorio.
+// Sin side-effects de escritura: el seed del catálogo vive en la migración 002.
 func NewPostgresOnboardingRepository(db *sql.DB) port.OnboardingRepository {
-	repo := &PostgresOnboardingRepository{db: db}
-
-	// Inicializar datos por defecto
-	if err := repo.initializeDefaultData(); err != nil {
-		log.Printf("Warning: Failed to initialize default data: %v", err)
-	}
-
-	return repo
+	return &PostgresOnboardingRepository{db: db}
 }
 
-// SaveProcess guarda un proceso de onboarding
-func (r *PostgresOnboardingRepository) SaveProcess(process *entity.OnboardingProcess) error {
+// SaveProcess guarda un proceso de onboarding. Tenant: process.TenantID (creado
+// server-side vía IAM — path del WITH CHECK, nunca input del cliente).
+func (r *PostgresOnboardingRepository) SaveProcess(ctx context.Context, process *entity.OnboardingProcess) error {
 	stepsCompletedJSON, _ := json.Marshal(process.StepsCompleted)
 	stepsPendingJSON, _ := json.Marshal(process.StepsPending)
 	stepsSkippedJSON, _ := json.Marshal(process.StepsSkipped)
@@ -54,29 +65,45 @@ func (r *PostgresOnboardingRepository) SaveProcess(process *entity.OnboardingPro
 			updated_at = EXCLUDED.updated_at
 	`
 
-	_, err := r.db.Exec(query,
-		process.ID,
-		process.TenantID,
-		process.UserID,
-		process.CurrentStepNumber,
-		process.IsCompleted,
-		process.CompanyName,
-		process.BusinessType,
-		process.StoreSize,
-		stepsCompletedJSON,
-		stepsPendingJSON,
-		stepsSkippedJSON,
-		process.StartedAt,
-		process.CompletedAt,
-		process.CreatedAt,
-		process.UpdatedAt,
-	)
-
-	return err
+	rc := postgres.RLSContext{TenantID: process.TenantID.String()}
+	return postgres.WithRLSInTransaction(ctx, r.db, rc, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, query,
+			process.ID,
+			process.TenantID,
+			process.UserID,
+			process.CurrentStepNumber,
+			process.IsCompleted,
+			process.CompanyName,
+			process.BusinessType,
+			process.StoreSize,
+			stepsCompletedJSON,
+			stepsPendingJSON,
+			stepsSkippedJSON,
+			process.StartedAt,
+			process.CompletedAt,
+			process.CreatedAt,
+			process.UpdatedAt,
+		)
+		return err
+	})
 }
 
-// GetProcessByID obtiene un proceso por ID
-func (r *PostgresOnboardingRepository) GetProcessByID(id uuid.UUID) (*entity.OnboardingProcess, error) {
+// GetProcessByID obtiene un proceso por ID — two-step D1 (lookup pre-auth).
+func (r *PostgresOnboardingRepository) GetProcessByID(ctx context.Context, id uuid.UUID) (*entity.OnboardingProcess, error) {
+	// Paso 1: resolver el tenant vía la función SECURITY DEFINER, directo sobre la
+	// conexión y SIN WithRLSInTransaction (todavía no hay tenant que fijar).
+	var tenantID uuid.NullUUID
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT onboarding_tenant_for_process($1)`, id,
+	).Scan(&tenantID); err != nil {
+		return nil, err
+	}
+	if !tenantID.Valid {
+		// Proceso inexistente: mismo error que una fila no encontrada — no se
+		// distingue "existe pero no es tuyo".
+		return nil, sql.ErrNoRows
+	}
+
 	query := `
 		SELECT id, tenant_id, user_id, current_step_number, is_completed,
 			   company_name, business_type, store_size, steps_completed,
@@ -86,46 +113,26 @@ func (r *PostgresOnboardingRepository) GetProcessByID(id uuid.UUID) (*entity.Onb
 		WHERE id = $1
 	`
 
-	row := r.db.QueryRow(query, id)
-	return r.scanProcess(row)
+	// Paso 2: la query real bajo el scope RLS del tenant resuelto.
+	rc := postgres.RLSContext{TenantID: tenantID.UUID.String()}
+	var process *entity.OnboardingProcess
+	err := postgres.WithRLSInTransaction(ctx, r.db, rc, func(ctx context.Context, tx *sql.Tx) error {
+		p, scanErr := r.scanProcess(tx.QueryRowContext(ctx, query, id))
+		if scanErr != nil {
+			return scanErr
+		}
+		process = p
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return process, nil
 }
 
-// GetProcessByTenantID obtiene un proceso por tenant ID
-func (r *PostgresOnboardingRepository) GetProcessByTenantID(tenantID uuid.UUID) (*entity.OnboardingProcess, error) {
-	query := `
-		SELECT id, tenant_id, user_id, current_step_number, is_completed,
-			   company_name, business_type, store_size, steps_completed,
-			   steps_pending, steps_skipped, started_at, completed_at,
-			   created_at, updated_at
-		FROM onboarding_processes
-		WHERE tenant_id = $1
-		ORDER BY created_at DESC
-		LIMIT 1
-	`
-
-	row := r.db.QueryRow(query, tenantID)
-	return r.scanProcess(row)
-}
-
-// GetProcessByUserID obtiene un proceso por user ID
-func (r *PostgresOnboardingRepository) GetProcessByUserID(userID uuid.UUID) (*entity.OnboardingProcess, error) {
-	query := `
-		SELECT id, tenant_id, user_id, current_step_number, is_completed,
-			   company_name, business_type, store_size, steps_completed,
-			   steps_pending, steps_skipped, started_at, completed_at,
-			   created_at, updated_at
-		FROM onboarding_processes
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-		LIMIT 1
-	`
-
-	row := r.db.QueryRow(query, userID)
-	return r.scanProcess(row)
-}
-
-// UpdateProcess actualiza un proceso existente
-func (r *PostgresOnboardingRepository) UpdateProcess(process *entity.OnboardingProcess) error {
+// UpdateProcess actualiza un proceso existente. Tenant: process.TenantID.
+func (r *PostgresOnboardingRepository) UpdateProcess(ctx context.Context, process *entity.OnboardingProcess) error {
 	stepsCompletedJSON, _ := json.Marshal(process.StepsCompleted)
 	stepsPendingJSON, _ := json.Marshal(process.StepsPending)
 	stepsSkippedJSON, _ := json.Marshal(process.StepsSkipped)
@@ -145,31 +152,28 @@ func (r *PostgresOnboardingRepository) UpdateProcess(process *entity.OnboardingP
 		WHERE id = $1
 	`
 
-	_, err := r.db.Exec(query,
-		process.ID,
-		process.CurrentStepNumber,
-		process.IsCompleted,
-		process.CompanyName,
-		process.BusinessType,
-		process.StoreSize,
-		stepsCompletedJSON,
-		stepsPendingJSON,
-		stepsSkippedJSON,
-		process.CompletedAt,
-		process.UpdatedAt,
-	)
-
-	return err
+	rc := postgres.RLSContext{TenantID: process.TenantID.String()}
+	return postgres.WithRLSInTransaction(ctx, r.db, rc, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, query,
+			process.ID,
+			process.CurrentStepNumber,
+			process.IsCompleted,
+			process.CompanyName,
+			process.BusinessType,
+			process.StoreSize,
+			stepsCompletedJSON,
+			stepsPendingJSON,
+			stepsSkippedJSON,
+			process.CompletedAt,
+			process.UpdatedAt,
+		)
+		return err
+	})
 }
 
-// DeleteProcess elimina un proceso por ID
-func (r *PostgresOnboardingRepository) DeleteProcess(id uuid.UUID) error {
-	_, err := r.db.Exec("DELETE FROM onboarding_processes WHERE id = $1", id)
-	return err
-}
-
-// GetStepDefinitions obtiene todas las definiciones de pasos
-func (r *PostgresOnboardingRepository) GetStepDefinitions() ([]*entity.StepDefinition, error) {
+// GetStepDefinitions obtiene todas las definiciones de pasos (catálogo global sin RLS,
+// pre-auth por diseño — sin transacción RLS a propósito).
+func (r *PostgresOnboardingRepository) GetStepDefinitions(ctx context.Context) ([]*entity.StepDefinition, error) {
 	query := `
 		SELECT id, step_number, step_name, step_title, description, is_required,
 			   has_ui, requires_user_input, can_be_skipped, display_order,
@@ -179,7 +183,7 @@ func (r *PostgresOnboardingRepository) GetStepDefinitions() ([]*entity.StepDefin
 		ORDER BY step_number
 	`
 
-	rows, err := r.db.Query(query)
+	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -198,8 +202,9 @@ func (r *PostgresOnboardingRepository) GetStepDefinitions() ([]*entity.StepDefin
 	return stepDefinitions, nil
 }
 
-// GetStepDefinitionByNumber obtiene una definición de paso por número
-func (r *PostgresOnboardingRepository) GetStepDefinitionByNumber(stepNumber int) (*entity.StepDefinition, error) {
+// GetStepDefinitionByNumber obtiene una definición de paso por número (catálogo global
+// sin RLS — sin transacción RLS a propósito).
+func (r *PostgresOnboardingRepository) GetStepDefinitionByNumber(ctx context.Context, stepNumber int) (*entity.StepDefinition, error) {
 	query := `
 		SELECT id, step_number, step_name, step_title, description, is_required,
 			   has_ui, requires_user_input, can_be_skipped, display_order,
@@ -208,186 +213,21 @@ func (r *PostgresOnboardingRepository) GetStepDefinitionByNumber(stepNumber int)
 		WHERE step_number = $1 AND is_active = true
 	`
 
-	row := r.db.QueryRow(query, stepNumber)
+	row := r.db.QueryRowContext(ctx, query, stepNumber)
 	return r.scanStepDefinitionRow(row)
-}
-
-// SaveStepDefinition guarda una definición de paso
-func (r *PostgresOnboardingRepository) SaveStepDefinition(stepDef *entity.StepDefinition) error {
-	query := `
-		INSERT INTO onboarding_step_definitions (
-			id, step_number, step_name, step_title, description, is_required,
-			has_ui, requires_user_input, can_be_skipped, display_order,
-			is_active, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-		ON CONFLICT (step_number) DO UPDATE SET
-			step_name = EXCLUDED.step_name,
-			step_title = EXCLUDED.step_title,
-			description = EXCLUDED.description,
-			updated_at = EXCLUDED.updated_at
-	`
-
-	_, err := r.db.Exec(query,
-		stepDef.ID,
-		stepDef.StepNumber,
-		stepDef.StepName,
-		stepDef.StepTitle,
-		stepDef.Description,
-		stepDef.IsRequired,
-		stepDef.HasUI,
-		stepDef.RequiresUserInput,
-		stepDef.CanBeSkipped,
-		stepDef.DisplayOrder,
-		stepDef.IsActive,
-		stepDef.CreatedAt,
-		stepDef.UpdatedAt,
-	)
-
-	return err
-}
-
-// GetActiveProcesses obtiene procesos activos
-func (r *PostgresOnboardingRepository) GetActiveProcesses() ([]*entity.OnboardingProcess, error) {
-	query := `
-		SELECT id, tenant_id, user_id, current_step_number, is_completed,
-			   company_name, business_type, store_size, steps_completed,
-			   steps_pending, steps_skipped, started_at, completed_at,
-			   created_at, updated_at
-		FROM onboarding_processes
-		WHERE is_completed = false
-		ORDER BY created_at DESC
-	`
-
-	rows, err := r.db.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var processes []*entity.OnboardingProcess
-	for rows.Next() {
-		process, err := r.scanProcessRows(rows)
-		if err != nil {
-			log.Printf("Error scanning process: %v", err)
-			continue
-		}
-		processes = append(processes, process)
-	}
-
-	return processes, nil
-}
-
-// GetCompletedProcesses obtiene procesos completados
-func (r *PostgresOnboardingRepository) GetCompletedProcesses() ([]*entity.OnboardingProcess, error) {
-	query := `
-		SELECT id, tenant_id, user_id, current_step_number, is_completed,
-			   company_name, business_type, store_size, steps_completed,
-			   steps_pending, steps_skipped, started_at, completed_at,
-			   created_at, updated_at
-		FROM onboarding_processes
-		WHERE is_completed = true
-		ORDER BY completed_at DESC
-	`
-
-	rows, err := r.db.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var processes []*entity.OnboardingProcess
-	for rows.Next() {
-		process, err := r.scanProcessRows(rows)
-		if err != nil {
-			log.Printf("Error scanning process: %v", err)
-			continue
-		}
-		processes = append(processes, process)
-	}
-
-	return processes, nil
-}
-
-// GetProcessesByDateRange obtiene procesos por rango de fechas
-func (r *PostgresOnboardingRepository) GetProcessesByDateRange(startDate, endDate string) ([]*entity.OnboardingProcess, error) {
-	query := `
-		SELECT id, tenant_id, user_id, current_step_number, is_completed,
-			   company_name, business_type, store_size, steps_completed,
-			   steps_pending, steps_skipped, started_at, completed_at,
-			   created_at, updated_at
-		FROM onboarding_processes
-		WHERE created_at >= $1 AND created_at <= $2
-		ORDER BY created_at DESC
-	`
-
-	rows, err := r.db.Query(query, startDate, endDate)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var processes []*entity.OnboardingProcess
-	for rows.Next() {
-		process, err := r.scanProcessRows(rows)
-		if err != nil {
-			log.Printf("Error scanning process: %v", err)
-			continue
-		}
-		processes = append(processes, process)
-	}
-
-	return processes, nil
-}
-
-// GetProcessStats obtiene estadísticas de procesos
-func (r *PostgresOnboardingRepository) GetProcessStats() (*port.ProcessStats, error) {
-	query := `
-		SELECT 
-			COUNT(*) as total_processes,
-			COUNT(CASE WHEN is_completed = true THEN 1 END) as completed_processes,
-			COUNT(CASE WHEN is_completed = false THEN 1 END) as active_processes,
-			AVG(CASE WHEN completed_at IS NOT NULL AND started_at IS NOT NULL 
-				THEN EXTRACT(EPOCH FROM (completed_at - started_at))/60 END) as avg_time_minutes
-		FROM onboarding_processes
-	`
-
-	row := r.db.QueryRow(query)
-
-	var stats port.ProcessStats
-	var avgTimeMinutes sql.NullFloat64
-
-	err := row.Scan(
-		&stats.TotalProcesses,
-		&stats.CompletedProcesses,
-		&stats.ActiveProcesses,
-		&avgTimeMinutes,
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if avgTimeMinutes.Valid {
-		stats.AverageTimeMinutes = avgTimeMinutes.Float64
-	}
-
-	if stats.TotalProcesses > 0 {
-		stats.CompletionRate = float64(stats.CompletedProcesses) / float64(stats.TotalProcesses) * 100
-	}
-
-	return &stats, nil
 }
 
 // ===============================
 // VERIFICATION CODES METHODS
 // ===============================
 
-// SaveVerificationCode guarda un código de verificación
-func (r *PostgresOnboardingRepository) SaveVerificationCode(code *entity.VerificationCode) error {
+// SaveVerificationCode guarda un código de verificación. Tenant: code.TenantID (derivado
+// del proceso ya cargado por el caller — D3).
+func (r *PostgresOnboardingRepository) SaveVerificationCode(ctx context.Context, code *entity.VerificationCode) error {
 	query := `
 		INSERT INTO verification_codes (
-			id, process_id, email, code, is_used, expires_at, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			id, process_id, tenant_id, email, code, is_used, expires_at, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (id) DO UPDATE SET
 			code = EXCLUDED.code,
 			is_used = EXCLUDED.is_used,
@@ -395,50 +235,54 @@ func (r *PostgresOnboardingRepository) SaveVerificationCode(code *entity.Verific
 			updated_at = EXCLUDED.updated_at
 	`
 
-	_, err := r.db.Exec(query,
-		code.ID,
-		code.ProcessID,
-		code.UserEmail,
-		code.Code,
-		code.IsUsed,
-		code.ExpiresAt,
-		code.CreatedAt,
-		code.UpdatedAt,
-	)
-
-	return err
+	rc := postgres.RLSContext{TenantID: code.TenantID.String()}
+	return postgres.WithRLSInTransaction(ctx, r.db, rc, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, query,
+			code.ID,
+			code.ProcessID,
+			code.TenantID,
+			code.UserEmail,
+			code.Code,
+			code.IsUsed,
+			code.ExpiresAt,
+			code.CreatedAt,
+			code.UpdatedAt,
+		)
+		return err
+	})
 }
 
-// GetVerificationCodeByProcessID obtiene un código de verificación por process ID
-func (r *PostgresOnboardingRepository) GetVerificationCodeByProcessID(processID uuid.UUID) (*entity.VerificationCode, error) {
+// GetVerificationCodeByProcessID obtiene el último código de verificación de un proceso.
+// tenantID explícito en la firma: los callers (VerifyEmail/ResendVerification) ya cargaron
+// el proceso y tienen el tenant.
+func (r *PostgresOnboardingRepository) GetVerificationCodeByProcessID(ctx context.Context, tenantID, processID uuid.UUID) (*entity.VerificationCode, error) {
 	query := `
-		SELECT id, process_id, email, code, is_used, expires_at, created_at, updated_at
+		SELECT id, process_id, tenant_id, email, code, is_used, expires_at, created_at, updated_at
 		FROM verification_codes
-		WHERE process_id = $1
+		WHERE process_id = $1 AND tenant_id = $2
 		ORDER BY created_at DESC
 		LIMIT 1
 	`
 
-	row := r.db.QueryRow(query, processID)
-	return r.scanVerificationCodeRow(row)
+	rc := postgres.RLSContext{TenantID: tenantID.String()}
+	var code *entity.VerificationCode
+	err := postgres.WithRLSInTransaction(ctx, r.db, rc, func(ctx context.Context, tx *sql.Tx) error {
+		c, scanErr := r.scanVerificationCodeRow(tx.QueryRowContext(ctx, query, processID, tenantID))
+		if scanErr != nil {
+			return scanErr
+		}
+		code = c
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return code, nil
 }
 
-// GetVerificationCodeByCode obtiene un código de verificación por el código mismo
-func (r *PostgresOnboardingRepository) GetVerificationCodeByCode(code string) (*entity.VerificationCode, error) {
-	query := `
-		SELECT id, process_id, email, code, is_used, expires_at, created_at, updated_at
-		FROM verification_codes
-		WHERE code = $1 AND is_used = false AND expires_at > NOW()
-		ORDER BY created_at DESC
-		LIMIT 1
-	`
-
-	row := r.db.QueryRow(query, code)
-	return r.scanVerificationCodeRow(row)
-}
-
-// UpdateVerificationCode actualiza un código de verificación
-func (r *PostgresOnboardingRepository) UpdateVerificationCode(code *entity.VerificationCode) error {
+// UpdateVerificationCode actualiza un código de verificación. Tenant: code.TenantID.
+func (r *PostgresOnboardingRepository) UpdateVerificationCode(ctx context.Context, code *entity.VerificationCode) error {
 	query := `
 		UPDATE verification_codes SET
 			is_used = $2,
@@ -446,33 +290,15 @@ func (r *PostgresOnboardingRepository) UpdateVerificationCode(code *entity.Verif
 		WHERE id = $1
 	`
 
-	_, err := r.db.Exec(query,
-		code.ID,
-		code.IsUsed,
-		code.UpdatedAt,
-	)
-
-	return err
-}
-
-// DeleteExpiredVerificationCodes elimina códigos de verificación expirados
-func (r *PostgresOnboardingRepository) DeleteExpiredVerificationCodes() error {
-	query := `
-		DELETE FROM verification_codes
-		WHERE expires_at < NOW() OR created_at < NOW() - INTERVAL '24 hours'
-	`
-
-	result, err := r.db.Exec(query)
-	if err != nil {
+	rc := postgres.RLSContext{TenantID: code.TenantID.String()}
+	return postgres.WithRLSInTransaction(ctx, r.db, rc, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, query,
+			code.ID,
+			code.IsUsed,
+			code.UpdatedAt,
+		)
 		return err
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected > 0 {
-		log.Printf("Deleted %d expired verification codes", rowsAffected)
-	}
-
-	return nil
+	})
 }
 
 // ===============================
@@ -485,45 +311,6 @@ func (r *PostgresOnboardingRepository) scanProcess(row *sql.Row) (*entity.Onboar
 	var completedAt sql.NullTime
 
 	err := row.Scan(
-		&process.ID,
-		&process.TenantID,
-		&process.UserID,
-		&process.CurrentStepNumber,
-		&process.IsCompleted,
-		&process.CompanyName,
-		&process.BusinessType,
-		&process.StoreSize,
-		&stepsCompletedJSON,
-		&stepsPendingJSON,
-		&stepsSkippedJSON,
-		&process.StartedAt,
-		&completedAt,
-		&process.CreatedAt,
-		&process.UpdatedAt,
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if completedAt.Valid {
-		process.CompletedAt = &completedAt.Time
-	}
-
-	// Deserializar arrays JSON
-	json.Unmarshal(stepsCompletedJSON, &process.StepsCompleted)
-	json.Unmarshal(stepsPendingJSON, &process.StepsPending)
-	json.Unmarshal(stepsSkippedJSON, &process.StepsSkipped)
-
-	return &process, nil
-}
-
-func (r *PostgresOnboardingRepository) scanProcessRows(rows *sql.Rows) (*entity.OnboardingProcess, error) {
-	var process entity.OnboardingProcess
-	var stepsCompletedJSON, stepsPendingJSON, stepsSkippedJSON []byte
-	var completedAt sql.NullTime
-
-	err := rows.Scan(
 		&process.ID,
 		&process.TenantID,
 		&process.UserID,
@@ -608,6 +395,7 @@ func (r *PostgresOnboardingRepository) scanVerificationCodeRow(row *sql.Row) (*e
 	err := row.Scan(
 		&code.ID,
 		&code.ProcessID,
+		&code.TenantID,
 		&code.UserEmail,
 		&code.Code,
 		&code.IsUsed,
@@ -621,33 +409,4 @@ func (r *PostgresOnboardingRepository) scanVerificationCodeRow(row *sql.Row) (*e
 	}
 
 	return &code, nil
-}
-
-// initializeDefaultData inicializa datos por defecto
-func (r *PostgresOnboardingRepository) initializeDefaultData() error {
-	// Verificar si ya existen step definitions
-	count := 0
-	err := r.db.QueryRow("SELECT COUNT(*) FROM onboarding_step_definitions").Scan(&count)
-	if err != nil {
-		log.Printf("Error checking existing step definitions: %v", err)
-		return err
-	}
-
-	if count > 0 {
-		log.Println("Step definitions already exist, skipping initialization")
-		return nil
-	}
-
-	// Insertar step definitions por defecto
-	stepDefinitions := entity.GetDefaultStepDefinitions()
-	for _, stepDef := range stepDefinitions {
-		err := r.SaveStepDefinition(stepDef)
-		if err != nil {
-			log.Printf("Error saving default step definition %d: %v", stepDef.StepNumber, err)
-			continue
-		}
-	}
-
-	log.Printf("Initialized %d default step definitions", len(stepDefinitions))
-	return nil
 }

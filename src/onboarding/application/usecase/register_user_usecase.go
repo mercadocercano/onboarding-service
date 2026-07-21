@@ -8,32 +8,35 @@ import (
 
 	"github.com/google/uuid"
 
+	appport "onboarding/src/onboarding/application/port"
 	"onboarding/src/onboarding/application/request"
 	"onboarding/src/onboarding/application/response"
 	"onboarding/src/onboarding/domain/entity"
-	"onboarding/src/onboarding/domain/port"
-	"onboarding/src/onboarding/infrastructure/client"
+	domainport "onboarding/src/onboarding/domain/port"
 )
 
 // RegisterUserUseCase maneja el registro completo de usuario
 type RegisterUserUseCase struct {
-	onboardingRepo     port.OnboardingRepository
-	iamClient          port.IAMClient
-	notificationClient port.NotificationClient
-	logger             port.OnboardingEventLogger
+	onboardingRepo     domainport.OnboardingRepository
+	iamClient          domainport.IAMClient
+	notificationClient domainport.NotificationClient
+	codeGenerator      appport.VerificationCodeGenerator
+	logger             domainport.OnboardingEventLogger
 }
 
 // NewRegisterUserUseCase crea una nueva instancia del caso de uso
 func NewRegisterUserUseCase(
-	onboardingRepo port.OnboardingRepository,
-	iamClient port.IAMClient,
-	notificationClient port.NotificationClient,
-	logger ...port.OnboardingEventLogger,
+	onboardingRepo domainport.OnboardingRepository,
+	iamClient domainport.IAMClient,
+	notificationClient domainport.NotificationClient,
+	codeGenerator appport.VerificationCodeGenerator,
+	logger ...domainport.OnboardingEventLogger,
 ) *RegisterUserUseCase {
 	uc := &RegisterUserUseCase{
 		onboardingRepo:     onboardingRepo,
 		iamClient:          iamClient,
 		notificationClient: notificationClient,
+		codeGenerator:      codeGenerator,
 	}
 	if len(logger) > 0 && logger[0] != nil {
 		uc.logger = logger[0]
@@ -41,14 +44,14 @@ func NewRegisterUserUseCase(
 	return uc
 }
 
-func (uc *RegisterUserUseCase) log(e port.OnboardingEvent) {
+func (uc *RegisterUserUseCase) log(e domainport.OnboardingEvent) {
 	if uc.logger != nil {
 		uc.logger.Log(e)
 	}
 }
 
 // Execute ejecuta el proceso completo de registro de usuario
-func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*response.RegisterUserResponse, error) {
+func (uc *RegisterUserUseCase) Execute(ctx context.Context, req *request.RegisterUserRequest) (*response.RegisterUserResponse, error) {
 	// 1. Validar request
 	if err := req.Validate(); err != nil {
 		return response.NewRegisterUserErrorResponse(err.Error()), nil
@@ -57,7 +60,7 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 	// 2. Obtener rol TENANT_ADMIN primero
 	tenantAdminRole, err := uc.iamClient.GetRoleByType("TENANT_ADMIN")
 	if err != nil {
-		uc.log(port.OnboardingEvent{
+		uc.log(domainport.OnboardingEvent{
 			Event:  "onboarding.tenant_registration_failed",
 			Reason: "error getting tenant admin role: " + err.Error(),
 		})
@@ -67,7 +70,7 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 	// 3. Crear tenant temporal con owner temporal
 	tenant, err := uc.createTenant(req)
 	if err != nil {
-		uc.log(port.OnboardingEvent{
+		uc.log(domainport.OnboardingEvent{
 			Event:  "onboarding.tenant_registration_failed",
 			Reason: "error creating tenant: " + err.Error(),
 		})
@@ -77,7 +80,7 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 	// 4. Crear usuario con rol de administrador
 	user, err := uc.createUser(req, tenant.ID, tenantAdminRole.ID)
 	if err != nil {
-		uc.log(port.OnboardingEvent{
+		uc.log(domainport.OnboardingEvent{
 			Event:    "onboarding.user_registration_failed",
 			TenantID: tenant.ID,
 			Reason:   "error creating user: " + err.Error(),
@@ -91,9 +94,9 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 	// No necesitamos llamar UpdateTenantOwner por separado
 
 	// 6. Crear proceso de onboarding real
-	process, err := uc.createOnboardingProcess(tenant.ID, user.ID)
+	process, err := uc.createOnboardingProcess(ctx, tenant.ID, user.ID)
 	if err != nil {
-		uc.log(port.OnboardingEvent{
+		uc.log(domainport.OnboardingEvent{
 			Event:    "onboarding.process_creation_failed",
 			TenantID: tenant.ID,
 			UserID:   user.ID,
@@ -103,15 +106,18 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 	}
 
 	// 7. *** Generar y enviar código de verificación ***
-	verificationCode := client.GenerateVerificationCode()
+	verificationCode := uc.codeGenerator.Generate()
 	processID := uuid.Nil
+	codeTenantID := uuid.Nil
 	if process != nil {
 		processID = process.ID
+		codeTenantID = process.TenantID
 	}
 
-	// Guardar código de verificación en la base de datos
-	if err := uc.saveVerificationCode(processID, req.GetCleanEmail(), verificationCode); err != nil {
-		uc.log(port.OnboardingEvent{
+	// Guardar código de verificación en la base de datos (tenant del proceso recién
+	// creado server-side — D3)
+	if err := uc.saveVerificationCode(ctx, codeTenantID, processID, req.GetCleanEmail(), verificationCode); err != nil {
+		uc.log(domainport.OnboardingEvent{
 			Event:     "onboarding.verification_code_save_failed",
 			TenantID:  tenant.ID,
 			UserID:    user.ID,
@@ -122,9 +128,8 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 	}
 
 	// Enviar email de verificación
-	ctx := context.Background()
 	if err := uc.notificationClient.SendEmailVerification(ctx, req.GetCleanEmail(), req.GetCleanName(), verificationCode); err != nil {
-		uc.log(port.OnboardingEvent{
+		uc.log(domainport.OnboardingEvent{
 			Event:     "onboarding.verification_email_send_failed",
 			TenantID:  tenant.ID,
 			UserID:    user.ID,
@@ -132,7 +137,7 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 			Reason:    err.Error(),
 		})
 	} else {
-		uc.log(port.OnboardingEvent{
+		uc.log(domainport.OnboardingEvent{
 			Event:     "onboarding.verification_email_sent",
 			TenantID:  tenant.ID,
 			UserID:    user.ID,
@@ -161,7 +166,7 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 		processIDStr = process.ID.String()
 	}
 
-	uc.log(port.OnboardingEvent{
+	uc.log(domainport.OnboardingEvent{
 		Event:     "onboarding.tenant_registered",
 		TenantID:  tenant.ID,
 		UserID:    user.ID,
@@ -171,7 +176,7 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 
 	// 9. Hacer login automático para obtener access_token y refresh_token
 	var accessToken, refreshToken string
-	loginReq := &port.LoginRequest{
+	loginReq := &domainport.LoginRequest{
 		Email:    req.GetCleanEmail(),
 		Password: req.Password,
 		Provider: "LOCAL",
@@ -179,7 +184,7 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 
 	loginResp, err := uc.iamClient.Login(loginReq)
 	if err != nil {
-		uc.log(port.OnboardingEvent{
+		uc.log(domainport.OnboardingEvent{
 			Event:    "onboarding.auto_login_failed",
 			TenantID: tenant.ID,
 			UserID:   user.ID,
@@ -194,20 +199,20 @@ func (uc *RegisterUserUseCase) Execute(req *request.RegisterUserRequest) (*respo
 }
 
 // saveVerificationCode guarda el código de verificación en la base de datos
-func (uc *RegisterUserUseCase) saveVerificationCode(processID uuid.UUID, email, code string) error {
-	verificationCode := entity.NewVerificationCode(processID, email, code)
-	return uc.onboardingRepo.SaveVerificationCode(verificationCode)
+func (uc *RegisterUserUseCase) saveVerificationCode(ctx context.Context, tenantID, processID uuid.UUID, email, code string) error {
+	verificationCode := entity.NewVerificationCode(tenantID, processID, email, code)
+	return uc.onboardingRepo.SaveVerificationCode(ctx, verificationCode)
 }
 
 // createTenant crea un tenant temporal para el usuario
-func (uc *RegisterUserUseCase) createTenant(req *request.RegisterUserRequest) (*port.TenantResponse, error) {
+func (uc *RegisterUserUseCase) createTenant(req *request.RegisterUserRequest) (*domainport.TenantResponse, error) {
 	tenantName := fmt.Sprintf("Tienda de %s", req.GetCleanName())
 	slug := uc.generateSlugFromName(req.GetCleanName())
 
 	// Generar UUID temporal válido para el owner (se actualizará después)
 	tempOwnerUUID := uuid.New().String()
 
-	tenantData := &port.CreateTenantRequest{
+	tenantData := &domainport.CreateTenantRequest{
 		Name:        tenantName,
 		Slug:        slug,
 		Description: fmt.Sprintf("Tienda administrada por %s", req.GetCleanEmail()),
@@ -225,8 +230,8 @@ func (uc *RegisterUserUseCase) createTenant(req *request.RegisterUserRequest) (*
 }
 
 // createUser crea el usuario administrador del tenant
-func (uc *RegisterUserUseCase) createUser(req *request.RegisterUserRequest, tenantID, roleID string) (*port.UserResponse, error) {
-	userData := &port.CreateUserRequest{
+func (uc *RegisterUserUseCase) createUser(req *request.RegisterUserRequest, tenantID, roleID string) (*domainport.UserResponse, error) {
+	userData := &domainport.CreateUserRequest{
 		Email:    req.GetCleanEmail(),
 		Password: req.Password,
 		Name:     req.GetCleanName(),
@@ -239,7 +244,7 @@ func (uc *RegisterUserUseCase) createUser(req *request.RegisterUserRequest, tena
 }
 
 // createOnboardingProcess crea el proceso de onboarding real
-func (uc *RegisterUserUseCase) createOnboardingProcess(tenantID, userID string) (*entity.OnboardingProcess, error) {
+func (uc *RegisterUserUseCase) createOnboardingProcess(ctx context.Context, tenantID, userID string) (*entity.OnboardingProcess, error) {
 	tenantUUID, err := uuid.Parse(tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid tenant UUID: %w", err)
@@ -261,7 +266,7 @@ func (uc *RegisterUserUseCase) createOnboardingProcess(tenantID, userID string) 
 	// Avanzar al paso 3 (verificación)
 	process.AdvanceToStep(3)
 
-	err = uc.onboardingRepo.SaveProcess(process)
+	err = uc.onboardingRepo.SaveProcess(ctx, process)
 	if err != nil {
 		return nil, fmt.Errorf("error saving onboarding process: %w", err)
 	}

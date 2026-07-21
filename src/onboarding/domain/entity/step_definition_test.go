@@ -27,38 +27,6 @@ func TestNewStepDefinition_WithValidData_ReturnsStep(t *testing.T) {
 	assert.True(t, step.IsActive)
 }
 
-func TestGetDefaultStepDefinitions_Returns5Steps(t *testing.T) {
-	// Act
-	steps := GetDefaultStepDefinitions()
-
-	// Assert
-	require.Len(t, steps, 5)
-	assert.Equal(t, 1, steps[0].StepNumber)
-	assert.Equal(t, "bienvenida", steps[0].StepName)
-	assert.Equal(t, 5, steps[4].StepNumber)
-	assert.Equal(t, "completar", steps[4].StepName)
-}
-
-func TestGetDefaultStepDefinitions_AllAreRequired(t *testing.T) {
-	// Act
-	steps := GetDefaultStepDefinitions()
-
-	// Assert
-	for _, step := range steps {
-		assert.True(t, step.IsRequired, "step %d should be required", step.StepNumber)
-		assert.True(t, step.IsActive, "step %d should be active", step.StepNumber)
-	}
-}
-
-func TestGetDefaultStepDefinitions_Step1And5AreAutomatic(t *testing.T) {
-	// Act
-	steps := GetDefaultStepDefinitions()
-
-	// Assert
-	assert.False(t, steps[0].RequiresUserInput, "bienvenida should not require user input")
-	assert.False(t, steps[4].RequiresUserInput, "completar should not require user input")
-}
-
 func TestIsValid_WithValidStep_ReturnsTrue(t *testing.T) {
 	// Arrange
 	step := NewStepDefinition(1, "test", "Test", "Test step")

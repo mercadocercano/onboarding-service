@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"database/sql"
+	"errors"
 	"log"
 	"net/http"
 
@@ -61,7 +63,7 @@ func (c *OnboardingController) RegisterUser(ctx *gin.Context) {
 		return // Error ya manejado por el middleware
 	}
 
-	response, err := c.registerUserUseCase.Execute(&req)
+	response, err := c.registerUserUseCase.Execute(ctx.Request.Context(), &req)
 	if err != nil {
 		middleware.AbortWithError(ctx, err)
 		return
@@ -78,7 +80,7 @@ func (c *OnboardingController) SetupStore(ctx *gin.Context) {
 		return
 	}
 
-	response, err := c.setupStoreUseCase.Execute(&req)
+	response, err := c.setupStoreUseCase.Execute(ctx.Request.Context(), &req)
 	if err != nil {
 		middleware.AbortWithError(ctx, err)
 		return
@@ -95,7 +97,7 @@ func (c *OnboardingController) SelectPlan(ctx *gin.Context) {
 		return
 	}
 
-	response, err := c.selectPlanUseCase.Execute(&req)
+	response, err := c.selectPlanUseCase.Execute(ctx.Request.Context(), &req)
 	if err != nil {
 		middleware.AbortWithError(ctx, err)
 		return
@@ -177,8 +179,14 @@ func (c *OnboardingController) GetProcessStatus(ctx *gin.Context) {
 		return
 	}
 
-	response, err := c.getProcessStatusUseCase.Execute(processID)
+	response, err := c.getProcessStatusUseCase.Execute(ctx.Request.Context(), processID)
 	if err != nil {
+		// Contrato del two-step D1 (PLAT-E28 T6): proceso inexistente Y "existe pero no es
+		// tuyo" llegan indistinguibles como sql.ErrNoRows — ambos son 404, nunca 500.
+		if errors.Is(err, sql.ErrNoRows) {
+			middleware.AbortWithBusinessError(ctx, middleware.ErrProcessNotFound)
+			return
+		}
 		middleware.AbortWithError(ctx, err)
 		return
 	}
@@ -194,7 +202,7 @@ func (c *OnboardingController) CompleteOnboarding(ctx *gin.Context) {
 		return
 	}
 
-	response, err := c.completeOnboardingUseCase.Execute(&req)
+	response, err := c.completeOnboardingUseCase.Execute(ctx.Request.Context(), &req)
 	if err != nil {
 		middleware.AbortWithError(ctx, err)
 		return
@@ -205,7 +213,7 @@ func (c *OnboardingController) CompleteOnboarding(ctx *gin.Context) {
 
 // GetStepDefinitions obtiene definiciones de pasos - versión refactorizada
 func (c *OnboardingController) GetStepDefinitions(ctx *gin.Context) {
-	stepDefinitions, err := c.onboardingRepo.GetStepDefinitions()
+	stepDefinitions, err := c.onboardingRepo.GetStepDefinitions(ctx.Request.Context())
 	if err != nil {
 		middleware.AbortWithError(ctx, err)
 		return
@@ -228,7 +236,7 @@ func (c *OnboardingController) StartOnboarding(ctx *gin.Context) {
 	req.IP = ctx.ClientIP()
 	req.UserAgent = ctx.GetHeader("User-Agent")
 
-	response, err := c.startOnboardingUseCase.Execute(&req)
+	response, err := c.startOnboardingUseCase.Execute(ctx.Request.Context(), &req)
 	if err != nil {
 		middleware.AbortWithError(ctx, err)
 		return
@@ -245,7 +253,7 @@ func (c *OnboardingController) VerifyEmail(ctx *gin.Context) {
 		return
 	}
 
-	response, err := c.verifyEmailUseCase.Execute(&req)
+	response, err := c.verifyEmailUseCase.Execute(ctx.Request.Context(), &req)
 	if err != nil {
 		middleware.AbortWithError(ctx, err)
 		return
@@ -262,7 +270,7 @@ func (c *OnboardingController) ResendVerificationEmail(ctx *gin.Context) {
 		return
 	}
 
-	response, err := c.resendVerificationUseCase.Execute(&req)
+	response, err := c.resendVerificationUseCase.Execute(ctx.Request.Context(), &req)
 	if err != nil {
 		middleware.AbortWithError(ctx, err)
 		return

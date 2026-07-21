@@ -7,29 +7,32 @@ import (
 
 	"github.com/google/uuid"
 
+	appport "onboarding/src/onboarding/application/port"
 	"onboarding/src/onboarding/application/request"
 	"onboarding/src/onboarding/application/response"
 	"onboarding/src/onboarding/domain/entity"
-	"onboarding/src/onboarding/domain/port"
-	"onboarding/src/onboarding/infrastructure/client"
+	domainport "onboarding/src/onboarding/domain/port"
 )
 
 // ResendVerificationUseCase maneja el reenvío de códigos de verificación
 type ResendVerificationUseCase struct {
-	onboardingRepo     port.OnboardingRepository
-	notificationClient port.NotificationClient
-	logger             port.OnboardingEventLogger
+	onboardingRepo     domainport.OnboardingRepository
+	notificationClient domainport.NotificationClient
+	codeGenerator      appport.VerificationCodeGenerator
+	logger             domainport.OnboardingEventLogger
 }
 
 // NewResendVerificationUseCase crea una nueva instancia del caso de uso
 func NewResendVerificationUseCase(
-	onboardingRepo port.OnboardingRepository,
-	notificationClient port.NotificationClient,
-	logger ...port.OnboardingEventLogger,
+	onboardingRepo domainport.OnboardingRepository,
+	notificationClient domainport.NotificationClient,
+	codeGenerator appport.VerificationCodeGenerator,
+	logger ...domainport.OnboardingEventLogger,
 ) *ResendVerificationUseCase {
 	uc := &ResendVerificationUseCase{
 		onboardingRepo:     onboardingRepo,
 		notificationClient: notificationClient,
+		codeGenerator:      codeGenerator,
 	}
 	if len(logger) > 0 && logger[0] != nil {
 		uc.logger = logger[0]
@@ -37,14 +40,14 @@ func NewResendVerificationUseCase(
 	return uc
 }
 
-func (uc *ResendVerificationUseCase) log(e port.OnboardingEvent) {
+func (uc *ResendVerificationUseCase) log(e domainport.OnboardingEvent) {
 	if uc.logger != nil {
 		uc.logger.Log(e)
 	}
 }
 
 // Execute ejecuta el caso de uso de reenvío de email de verificación
-func (uc *ResendVerificationUseCase) Execute(req *request.ResendVerificationRequest) (*response.ResendVerificationResponse, error) {
+func (uc *ResendVerificationUseCase) Execute(ctx context.Context, req *request.ResendVerificationRequest) (*response.ResendVerificationResponse, error) {
 	// Sanitizar y validar request
 	req.Sanitize()
 	if err := req.Validate(); err != nil {
@@ -58,7 +61,7 @@ func (uc *ResendVerificationUseCase) Execute(req *request.ResendVerificationRequ
 	}
 
 	// Obtener proceso de onboarding
-	process, err := uc.onboardingRepo.GetProcessByID(processUUID)
+	process, err := uc.onboardingRepo.GetProcessByID(ctx, processUUID)
 	if err != nil {
 		return response.NewResendVerificationErrorResponse("Proceso no encontrado", err), nil
 	}
@@ -72,8 +75,8 @@ func (uc *ResendVerificationUseCase) Execute(req *request.ResendVerificationRequ
 		return response.NewResendVerificationErrorResponse("El proceso no está en el paso de verificación", fmt.Errorf("invalid step")), nil
 	}
 
-	// Verificar throttling: obtener el último código enviado
-	existingCode, err := uc.onboardingRepo.GetVerificationCodeByProcessID(processUUID)
+	// Verificar throttling: obtener el último código enviado (tenant del proceso ya cargado)
+	existingCode, err := uc.onboardingRepo.GetVerificationCodeByProcessID(ctx, process.TenantID, processUUID)
 	if err != nil {
 		// Continuar sin error, ya que es para throttling
 		_ = err
@@ -86,7 +89,7 @@ func (uc *ResendVerificationUseCase) Execute(req *request.ResendVerificationRequ
 
 		if timeSinceCreated < minWaitTime {
 			waitSeconds := int(minWaitTime.Seconds() - timeSinceCreated.Seconds())
-			uc.log(port.OnboardingEvent{
+			uc.log(domainport.OnboardingEvent{
 				Event:     "onboarding.verification_resend_throttled",
 				TenantID:  process.TenantID.String(),
 				UserID:    process.UserID.String(),
@@ -99,20 +102,20 @@ func (uc *ResendVerificationUseCase) Execute(req *request.ResendVerificationRequ
 	}
 
 	// Generar nuevo código de verificación
-	newVerificationCode := client.GenerateVerificationCode()
+	newVerificationCode := uc.codeGenerator.Generate()
 
 	// Invalidar código anterior si existe
 	if existingCode != nil {
 		existingCode.MarkAsUsed()
-		if err := uc.onboardingRepo.UpdateVerificationCode(existingCode); err != nil {
+		if err := uc.onboardingRepo.UpdateVerificationCode(ctx, existingCode); err != nil {
 			// No fallar por esto
 			_ = err
 		}
 	}
 
-	// Crear y guardar nuevo código
-	verificationCodeEntity := entity.NewVerificationCode(processUUID, req.Email, newVerificationCode)
-	if err := uc.onboardingRepo.SaveVerificationCode(verificationCodeEntity); err != nil {
+	// Crear y guardar nuevo código (tenant del proceso ya cargado — D3)
+	verificationCodeEntity := entity.NewVerificationCode(process.TenantID, processUUID, req.Email, newVerificationCode)
+	if err := uc.onboardingRepo.SaveVerificationCode(ctx, verificationCodeEntity); err != nil {
 		return response.NewResendVerificationErrorResponse("Error interno del servidor", err), err
 	}
 
@@ -120,9 +123,8 @@ func (uc *ResendVerificationUseCase) Execute(req *request.ResendVerificationRequ
 	userName := "Usuario"
 
 	// Enviar email de verificación
-	ctx := context.Background()
 	if err := uc.notificationClient.SendEmailVerification(ctx, req.Email, userName, newVerificationCode); err != nil {
-		uc.log(port.OnboardingEvent{
+		uc.log(domainport.OnboardingEvent{
 			Event:     "onboarding.verification_email_send_failed",
 			TenantID:  process.TenantID.String(),
 			UserID:    process.UserID.String(),
@@ -133,7 +135,7 @@ func (uc *ResendVerificationUseCase) Execute(req *request.ResendVerificationRequ
 		return response.NewResendVerificationErrorResponse("Error al enviar email de verificación", err), err
 	}
 
-	uc.log(port.OnboardingEvent{
+	uc.log(domainport.OnboardingEvent{
 		Event:     "onboarding.verification_email_resent",
 		TenantID:  process.TenantID.String(),
 		UserID:    process.UserID.String(),

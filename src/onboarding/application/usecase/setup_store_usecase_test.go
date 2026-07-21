@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -33,8 +34,8 @@ func TestSetupStore_WithValidRequest_ReturnsSuccess(t *testing.T) {
 		{ID: "retail", Code: "retail", Name: "Retail", Description: "Retail store", Icon: "store"},
 	}
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("UpdateProcess", mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("UpdateProcess", mock.Anything, mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
 	pimClient.On("GetBusinessTypes").Return(businessTypes, nil)
 	pimClient.On("GetBusinessType", "retail").Return(businessTypes[0], nil)
 	pimClient.On("GetCategoriesByBusinessType", "retail").Return([]*port.Category{}, nil)
@@ -50,7 +51,7 @@ func TestSetupStore_WithValidRequest_ReturnsSuccess(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -77,7 +78,7 @@ func TestSetupStore_WithInvalidBusinessType_ReturnsError(t *testing.T) {
 		{ID: "retail", Code: "retail", Name: "Retail"},
 	}
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
 	pimClient.On("GetBusinessTypes").Return(businessTypes, nil)
 
 	req := &request.SetupStoreRequest{
@@ -88,7 +89,7 @@ func TestSetupStore_WithInvalidBusinessType_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -111,7 +112,7 @@ func TestSetupStore_WithEmptyStoreName_ReturnsValidationError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -134,7 +135,7 @@ func TestSetupStore_WithInvalidStoreSize_ReturnsValidationError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -150,7 +151,7 @@ func TestSetupStore_WhenProcessNotFound_ReturnsError(t *testing.T) {
 	uc := NewSetupStoreUseCase(repo, pimClient, iamClient)
 
 	processID := uuid.New()
-	repo.On("GetProcessByID", processID).Return((*entity.OnboardingProcess)(nil), errors.New("not found"))
+	repo.On("GetProcessByID", mock.Anything, processID).Return((*entity.OnboardingProcess)(nil), errors.New("not found"))
 
 	req := &request.SetupStoreRequest{
 		ProcessID:    processID.String(),
@@ -160,7 +161,7 @@ func TestSetupStore_WhenProcessNotFound_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.Error(t, err)
@@ -180,7 +181,7 @@ func TestSetupStore_WhenPIMGetBusinessTypesFails_ReturnsError(t *testing.T) {
 		WithID(processID).
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
 	pimClient.On("GetBusinessTypes").Return(nil, errors.New("pim error"))
 
 	req := &request.SetupStoreRequest{
@@ -191,7 +192,7 @@ func TestSetupStore_WhenPIMGetBusinessTypesFails_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.Error(t, err)
@@ -215,8 +216,8 @@ func TestSetupStore_WhenRepoUpdateFails_ReturnsError(t *testing.T) {
 		{ID: "retail", Code: "retail", Name: "Retail"},
 	}
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("UpdateProcess", mock.AnythingOfType("*entity.OnboardingProcess")).Return(errors.New("db error"))
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("UpdateProcess", mock.Anything, mock.AnythingOfType("*entity.OnboardingProcess")).Return(errors.New("db error"))
 	pimClient.On("GetBusinessTypes").Return(businessTypes, nil)
 
 	req := &request.SetupStoreRequest{
@@ -227,7 +228,7 @@ func TestSetupStore_WhenRepoUpdateFails_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.Error(t, err)
@@ -251,8 +252,8 @@ func TestSetupStore_WithCategories_IncludesThemInResponse(t *testing.T) {
 		{ID: "retail", Code: "retail", Name: "Retail", Icon: "store"},
 	}
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("UpdateProcess", mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("UpdateProcess", mock.Anything, mock.AnythingOfType("*entity.OnboardingProcess")).Return(nil)
 	pimClient.On("GetBusinessTypes").Return(businessTypes, nil)
 	pimClient.On("GetBusinessType", "retail").Return(businessTypes[0], nil)
 	pimClient.On("GetCategoriesByBusinessType", "retail").Return([]*port.Category{}, nil)
@@ -269,7 +270,7 @@ func TestSetupStore_WithCategories_IncludesThemInResponse(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)

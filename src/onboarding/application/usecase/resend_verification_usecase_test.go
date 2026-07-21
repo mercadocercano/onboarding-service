@@ -1,10 +1,12 @@
 package usecase
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 
+	appmocks "onboarding/src/onboarding/application/port/mocks"
 	"onboarding/src/onboarding/application/request"
 	"onboarding/src/onboarding/domain/entity"
 	"onboarding/src/onboarding/domain/entity/testutil"
@@ -20,7 +22,8 @@ func TestResendVerification_WithValidRequest_ReturnsSuccess(t *testing.T) {
 	// Arrange
 	repo := new(mocks.MockOnboardingRepository)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewResendVerificationUseCase(repo, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewResendVerificationUseCase(repo, notifClient, codeGen)
 
 	processID := uuid.New()
 	process := testutil.NewOnboardingProcessMother().
@@ -34,10 +37,11 @@ func TestResendVerification_WithValidRequest_ReturnsSuccess(t *testing.T) {
 		WithCreatedAt(time.Now().Add(-2 * time.Minute)).
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("GetVerificationCodeByProcessID", processID).Return(oldCode, nil)
-	repo.On("UpdateVerificationCode", mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
-	repo.On("SaveVerificationCode", mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("GetVerificationCodeByProcessID", mock.Anything, mock.Anything, processID).Return(oldCode, nil)
+	repo.On("UpdateVerificationCode", mock.Anything, mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
+	repo.On("SaveVerificationCode", mock.Anything, mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
+	codeGen.On("Generate").Return("654321")
 	notifClient.On("SendEmailVerification", mock.Anything, "test@example.com", "Usuario", mock.AnythingOfType("string")).Return(nil)
 
 	req := &request.ResendVerificationRequest{
@@ -46,7 +50,7 @@ func TestResendVerification_WithValidRequest_ReturnsSuccess(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -60,7 +64,8 @@ func TestResendVerification_WithEmptyProcessID_ReturnsError(t *testing.T) {
 	// Arrange
 	repo := new(mocks.MockOnboardingRepository)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewResendVerificationUseCase(repo, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewResendVerificationUseCase(repo, notifClient, codeGen)
 
 	req := &request.ResendVerificationRequest{
 		ProcessID: "",
@@ -68,7 +73,7 @@ func TestResendVerification_WithEmptyProcessID_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -80,7 +85,8 @@ func TestResendVerification_WithEmptyEmail_ReturnsError(t *testing.T) {
 	// Arrange
 	repo := new(mocks.MockOnboardingRepository)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewResendVerificationUseCase(repo, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewResendVerificationUseCase(repo, notifClient, codeGen)
 
 	req := &request.ResendVerificationRequest{
 		ProcessID: uuid.New().String(),
@@ -88,7 +94,7 @@ func TestResendVerification_WithEmptyEmail_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -100,7 +106,8 @@ func TestResendVerification_WithInvalidEmail_ReturnsError(t *testing.T) {
 	// Arrange
 	repo := new(mocks.MockOnboardingRepository)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewResendVerificationUseCase(repo, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewResendVerificationUseCase(repo, notifClient, codeGen)
 
 	req := &request.ResendVerificationRequest{
 		ProcessID: uuid.New().String(),
@@ -108,7 +115,7 @@ func TestResendVerification_WithInvalidEmail_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -120,10 +127,11 @@ func TestResendVerification_WhenProcessNotFound_ReturnsError(t *testing.T) {
 	// Arrange
 	repo := new(mocks.MockOnboardingRepository)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewResendVerificationUseCase(repo, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewResendVerificationUseCase(repo, notifClient, codeGen)
 
 	processID := uuid.New()
-	repo.On("GetProcessByID", processID).Return((*entity.OnboardingProcess)(nil), errors.New("not found"))
+	repo.On("GetProcessByID", mock.Anything, processID).Return((*entity.OnboardingProcess)(nil), errors.New("not found"))
 
 	req := &request.ResendVerificationRequest{
 		ProcessID: processID.String(),
@@ -131,7 +139,7 @@ func TestResendVerification_WhenProcessNotFound_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -143,10 +151,11 @@ func TestResendVerification_WhenProcessNil_ReturnsError(t *testing.T) {
 	// Arrange
 	repo := new(mocks.MockOnboardingRepository)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewResendVerificationUseCase(repo, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewResendVerificationUseCase(repo, notifClient, codeGen)
 
 	processID := uuid.New()
-	repo.On("GetProcessByID", processID).Return((*entity.OnboardingProcess)(nil), nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return((*entity.OnboardingProcess)(nil), nil)
 
 	req := &request.ResendVerificationRequest{
 		ProcessID: processID.String(),
@@ -154,7 +163,7 @@ func TestResendVerification_WhenProcessNil_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -166,7 +175,8 @@ func TestResendVerification_WhenNotAtStep3_ReturnsError(t *testing.T) {
 	// Arrange
 	repo := new(mocks.MockOnboardingRepository)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewResendVerificationUseCase(repo, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewResendVerificationUseCase(repo, notifClient, codeGen)
 
 	processID := uuid.New()
 	process := testutil.NewOnboardingProcessMother().
@@ -174,7 +184,7 @@ func TestResendVerification_WhenNotAtStep3_ReturnsError(t *testing.T) {
 		WithCurrentStep(4). // Not at step 3
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
 
 	req := &request.ResendVerificationRequest{
 		ProcessID: processID.String(),
@@ -182,7 +192,7 @@ func TestResendVerification_WhenNotAtStep3_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -194,7 +204,8 @@ func TestResendVerification_WhenThrottled_ReturnsThrottleResponse(t *testing.T) 
 	// Arrange
 	repo := new(mocks.MockOnboardingRepository)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewResendVerificationUseCase(repo, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewResendVerificationUseCase(repo, notifClient, codeGen)
 
 	processID := uuid.New()
 	process := testutil.NewOnboardingProcessMother().
@@ -208,8 +219,8 @@ func TestResendVerification_WhenThrottled_ReturnsThrottleResponse(t *testing.T) 
 		WithCreatedAt(time.Now().Add(-10 * time.Second)).
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("GetVerificationCodeByProcessID", processID).Return(recentCode, nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("GetVerificationCodeByProcessID", mock.Anything, mock.Anything, processID).Return(recentCode, nil)
 
 	req := &request.ResendVerificationRequest{
 		ProcessID: processID.String(),
@@ -217,7 +228,7 @@ func TestResendVerification_WhenThrottled_ReturnsThrottleResponse(t *testing.T) 
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
@@ -231,7 +242,8 @@ func TestResendVerification_WhenSaveCodeFails_ReturnsError(t *testing.T) {
 	// Arrange
 	repo := new(mocks.MockOnboardingRepository)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewResendVerificationUseCase(repo, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewResendVerificationUseCase(repo, notifClient, codeGen)
 
 	processID := uuid.New()
 	process := testutil.NewOnboardingProcessMother().
@@ -239,9 +251,10 @@ func TestResendVerification_WhenSaveCodeFails_ReturnsError(t *testing.T) {
 		AtStep3Verification().
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("GetVerificationCodeByProcessID", processID).Return((*entity.VerificationCode)(nil), nil)
-	repo.On("SaveVerificationCode", mock.AnythingOfType("*entity.VerificationCode")).Return(errors.New("db error"))
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("GetVerificationCodeByProcessID", mock.Anything, mock.Anything, processID).Return((*entity.VerificationCode)(nil), nil)
+	codeGen.On("Generate").Return("654321")
+	repo.On("SaveVerificationCode", mock.Anything, mock.AnythingOfType("*entity.VerificationCode")).Return(errors.New("db error"))
 
 	req := &request.ResendVerificationRequest{
 		ProcessID: processID.String(),
@@ -249,7 +262,7 @@ func TestResendVerification_WhenSaveCodeFails_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.Error(t, err)
@@ -261,7 +274,8 @@ func TestResendVerification_WhenNotificationFails_ReturnsError(t *testing.T) {
 	// Arrange
 	repo := new(mocks.MockOnboardingRepository)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewResendVerificationUseCase(repo, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewResendVerificationUseCase(repo, notifClient, codeGen)
 
 	processID := uuid.New()
 	process := testutil.NewOnboardingProcessMother().
@@ -269,9 +283,10 @@ func TestResendVerification_WhenNotificationFails_ReturnsError(t *testing.T) {
 		AtStep3Verification().
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("GetVerificationCodeByProcessID", processID).Return((*entity.VerificationCode)(nil), nil)
-	repo.On("SaveVerificationCode", mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("GetVerificationCodeByProcessID", mock.Anything, mock.Anything, processID).Return((*entity.VerificationCode)(nil), nil)
+	repo.On("SaveVerificationCode", mock.Anything, mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
+	codeGen.On("Generate").Return("654321")
 	notifClient.On("SendEmailVerification", mock.Anything, "test@example.com", "Usuario", mock.AnythingOfType("string")).Return(errors.New("email error"))
 
 	req := &request.ResendVerificationRequest{
@@ -280,7 +295,7 @@ func TestResendVerification_WhenNotificationFails_ReturnsError(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.Error(t, err)
@@ -292,7 +307,8 @@ func TestResendVerification_InvalidatesOldCode(t *testing.T) {
 	// Arrange
 	repo := new(mocks.MockOnboardingRepository)
 	notifClient := new(mocks.MockNotificationClient)
-	uc := NewResendVerificationUseCase(repo, notifClient)
+	codeGen := new(appmocks.MockVerificationCodeGenerator)
+	uc := NewResendVerificationUseCase(repo, notifClient, codeGen)
 
 	processID := uuid.New()
 	process := testutil.NewOnboardingProcessMother().
@@ -305,10 +321,11 @@ func TestResendVerification_InvalidatesOldCode(t *testing.T) {
 		WithCreatedAt(time.Now().Add(-2 * time.Minute)).
 		Build()
 
-	repo.On("GetProcessByID", processID).Return(process, nil)
-	repo.On("GetVerificationCodeByProcessID", processID).Return(oldCode, nil)
-	repo.On("UpdateVerificationCode", mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
-	repo.On("SaveVerificationCode", mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
+	repo.On("GetProcessByID", mock.Anything, processID).Return(process, nil)
+	repo.On("GetVerificationCodeByProcessID", mock.Anything, mock.Anything, processID).Return(oldCode, nil)
+	repo.On("UpdateVerificationCode", mock.Anything, mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
+	repo.On("SaveVerificationCode", mock.Anything, mock.AnythingOfType("*entity.VerificationCode")).Return(nil)
+	codeGen.On("Generate").Return("654321")
 	notifClient.On("SendEmailVerification", mock.Anything, "test@example.com", "Usuario", mock.AnythingOfType("string")).Return(nil)
 
 	req := &request.ResendVerificationRequest{
@@ -317,11 +334,11 @@ func TestResendVerification_InvalidatesOldCode(t *testing.T) {
 	}
 
 	// Act
-	resp, err := uc.Execute(req)
+	resp, err := uc.Execute(context.Background(), req)
 
 	// Assert
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.True(t, resp.Success)
-	repo.AssertCalled(t, "UpdateVerificationCode", mock.AnythingOfType("*entity.VerificationCode"))
+	repo.AssertCalled(t, "UpdateVerificationCode", mock.Anything, mock.AnythingOfType("*entity.VerificationCode"))
 }
