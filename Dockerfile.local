@@ -1,25 +1,45 @@
-# Dockerfile.local - Build usando libs locales (sin GITHUB_TOKEN)
+# syntax=docker/dockerfile:1
+# Dockerfile.local - Build usando libs locales para go-shared (sin GITHUB_TOKEN
+# para esa dependencia). github.com/mercadocercano/eventbus SÍ es privado y
+# requiere el BuildKit secret github_token (mismo patrón que sales-service/tenant-service).
 # Ejecutar desde la raíz del repo: docker build -f services/onboarding-service/Dockerfile.local .
 
-FROM golang:1.25-alpine AS builder
+FROM golang:1.25-bookworm AS builder
 
 WORKDIR /app
 
-RUN apk add --no-cache git ca-certificates
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copiar código fuente del servicio y libs locales
-COPY services/onboarding-service/ ./
+# Copiar go.mod/go.sum + lib local primero (cache de capas: separar deps de source)
+COPY services/onboarding-service/go.mod services/onboarding-service/go.sum* ./
 COPY libs/go-shared ./libs/go-shared/
 
-# Usar lib local en lugar de GitHub (evita GITHUB_TOKEN)
+# Usar lib local en lugar de GitHub (evita GITHUB_TOKEN para go-shared)
 RUN echo 'replace github.com/hornosg/go-shared => ./libs/go-shared' >> go.mod
 
-RUN go mod download
+# github.com/mercadocercano/eventbus SÍ es un módulo privado real (sin lib local
+# equivalente) — el token llega como BuildKit secret y nunca queda en una capa.
+ENV GOPRIVATE=github.com/mercadocercano/*
+RUN --mount=type=secret,id=github_token \
+    if [ -s /run/secrets/github_token ]; then \
+      git config --global url."https://$(cat /run/secrets/github_token)@github.com/".insteadOf "https://github.com/"; \
+    fi && \
+    go mod download && \
+    rm -f /root/.gitconfig
+
+# Ahora sí, el resto del código fuente del servicio (pisa el go.mod de arriba con el
+# original sin el replace — se vuelve a aplicar acá, el mod cache de la capa anterior
+# sigue siendo válido)
+COPY services/onboarding-service/ ./
+COPY libs/go-shared ./libs/go-shared/
+RUN grep -q 'replace github.com/hornosg/go-shared' go.mod || \
+    echo 'replace github.com/hornosg/go-shared => ./libs/go-shared' >> go.mod
 
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./src/main.go
 
-# Final stage (igual que Dockerfile principal)
-FROM alpine:3.18
+# Final stage
+FROM debian:bookworm-slim
 
 ARG APP_VERSION=1.0
 ARG APP_PORT=8110
@@ -34,10 +54,11 @@ LABEL maintainer="SaaS Team" \
 ENV PORT=${APP_PORT} \
     APP_ENV=${APP_ENV}
 
-RUN apk add --no-cache postgresql-client dos2unix ca-certificates tzdata wget && \
-    cp /usr/share/zoneinfo/UTC /etc/localtime && \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && (cp /usr/share/zoneinfo/UTC /etc/localtime || true) && \
     echo "UTC" > /etc/timezone && \
-    adduser -D appuser
+    useradd -r -m appuser
 
 WORKDIR /app
 
