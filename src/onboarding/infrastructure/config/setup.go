@@ -13,7 +13,6 @@ import (
 
 	"onboarding/src/onboarding/application/usecase"
 	"onboarding/src/onboarding/domain/port"
-	"onboarding/src/onboarding/infrastructure/auth"
 	"onboarding/src/onboarding/infrastructure/client"
 	"onboarding/src/onboarding/infrastructure/controller"
 	onboardingevent "onboarding/src/onboarding/infrastructure/event"
@@ -28,23 +27,16 @@ func SetupOnboardingModule(router *gin.RouterGroup, db *sql.DB) {
 	// 0. Inicializar logger canónico (ADR-001)
 	eventLogger := logging.NewOnboardingLogger("onboarding")
 
-	// 1. Inicializar token provider para service-to-service auth.
-	//    Se firma tenant_id (system tenant, mismo valor que viaja en X-Tenant-ID) y
-	//    namespace para que el token S2S no dependa del bypass de tenant.
-	jwtSecret := os.Getenv("JWT_SECRET")
-	staticToken := os.Getenv("IAM_SUPER_ADMIN_TOKEN")
-	systemTenantID := os.Getenv("SYSTEM_TENANT_ID")
-	if systemTenantID == "" {
-		systemTenantID = "123e4567-e89b-12d3-a456-426614174003"
-	}
+	// 1. Namespace del servicio (eventos). El S2S hacia IAM ya no firma un JWT de servicio:
+	//    entra por X-API-Key (S2S_KEY_ONBOARDING, ADR-002). ACC-E03.T6 retiró el provider
+	//    HS256 que firmaba con JWT_SECRET y forjaba iss=iam-service.
 	serviceNamespace := os.Getenv("SERVICE_NAMESPACE")
 	if serviceNamespace == "" {
 		serviceNamespace = "mc"
 	}
-	tokenProvider := auth.NewServiceTokenProviderWithIdentity(jwtSecret, staticToken, systemTenantID, serviceNamespace)
 
 	// 2. Inicializar clientes externos
-	iamClient := client.NewIAMClientWithProvider(tokenProvider)
+	iamClient := client.NewIAMClient()
 	pimClient := client.NewPIMClient()
 
 	// Obtener URL del servicio de notificaciones desde variable de entorno

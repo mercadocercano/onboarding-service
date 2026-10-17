@@ -54,7 +54,6 @@ func main() {
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
 	router.Use(tenantmw.TenantValidation(tenantmw.TenantValidationConfig{
-		JWTSecret: os.Getenv("JWT_SECRET"),
 		ExcludedRoutes: []string{
 			"/health",
 			"/api/v1/health",

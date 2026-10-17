@@ -12,36 +12,22 @@ import (
 	"github.com/hornosg/go-shared/infrastructure/env"
 
 	"onboarding/src/onboarding/domain/port"
-	"onboarding/src/onboarding/infrastructure/auth"
 )
 
 // IAMHTTPClient implementa IAMClient usando HTTP (S2S)
 type IAMHTTPClient struct {
 	baseURL        string
 	httpClient     *http.Client
-	tokenProvider  *auth.ServiceTokenProvider
 	systemTenantID string // Tenant de sistema para operaciones service-to-service
 	apiKey         string // API Key para autenticación S2S via Kong
 }
 
-// NewIAMClient crea una nueva instancia del cliente IAM
+// NewIAMClient crea una nueva instancia del cliente IAM. El S2S se autentica sólo con
+// X-API-Key: desde ACC-E03.T6 no se firma ningún JWT de servicio (el provider HS256 con
+// JWT_SECRET forjaba iss=iam-service y dejó de verificar con iam RS256-only).
 func NewIAMClient() port.IAMClient {
-	return NewIAMClientWithProvider(nil)
-}
-
-// NewIAMClientWithProvider crea un cliente IAM con un ServiceTokenProvider.
-// Si provider es nil, se crea uno con los env vars disponibles.
-func NewIAMClientWithProvider(provider *auth.ServiceTokenProvider) port.IAMClient {
 	baseURL := env.Get("IAM_SERVICE_URL", "http://lab-kong:8000/iam-service")
 	systemTenantID := env.Get("SYSTEM_TENANT_ID", "123e4567-e89b-12d3-a456-426614174003")
-
-	if provider == nil {
-		jwtSecret := env.Get("JWT_SECRET", "")
-		staticToken := env.Get("IAM_SUPER_ADMIN_TOKEN", "")
-		serviceNamespace := env.Get("SERVICE_NAMESPACE", "mc")
-		// Mismo systemTenantID que viaja en X-Tenant-ID → el token S2S no depende del bypass.
-		provider = auth.NewServiceTokenProviderWithIdentity(jwtSecret, staticToken, systemTenantID, serviceNamespace)
-	}
 
 	// S2S scoped key para onboarding-service, registrada en IAM como service "onboarding".
 	// Fallback a S2S_API_KEY (god-key legacy) mientras se migra la infra.
@@ -55,7 +41,6 @@ func NewIAMClientWithProvider(provider *auth.ServiceTokenProvider) port.IAMClien
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		tokenProvider:  provider,
 		systemTenantID: systemTenantID,
 		apiKey:         apiKey,
 	}
@@ -66,10 +51,6 @@ func (c *IAMHTTPClient) setSystemHeaders(req *http.Request) {
 	// Autenticación S2S via API Key (Kong internal routes)
 	if c.apiKey != "" {
 		req.Header.Set("X-API-Key", c.apiKey)
-	}
-	// Fallback: JWT de servicio para compatibilidad
-	if token := c.tokenProvider.GetToken(); token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	req.Header.Set("X-Tenant-ID", c.systemTenantID)
 }
