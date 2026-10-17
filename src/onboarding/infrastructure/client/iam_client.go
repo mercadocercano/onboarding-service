@@ -530,38 +530,3 @@ func (c *IAMHTTPClient) Login(request *port.LoginRequest) (*port.LoginResponse, 
 
 	return &loginResponse, nil
 }
-
-// ValidateToken valida un token
-func (c *IAMHTTPClient) ValidateToken(token string) (*port.TokenValidationResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/auth/validate", c.baseURL)
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error making request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("error reading response: %w", err)
-	}
-
-	var validationResponse port.TokenValidationResponse
-	if resp.StatusCode == http.StatusOK {
-		if err := json.Unmarshal(body, &validationResponse); err != nil {
-			return nil, fmt.Errorf("error unmarshaling response: %w", err)
-		}
-		validationResponse.Valid = true
-	} else {
-		validationResponse.Valid = false
-	}
-
-	return &validationResponse, nil
-}

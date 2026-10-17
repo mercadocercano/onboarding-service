@@ -97,11 +97,3 @@ func (m *MockIAMClient) Login(request *port.LoginRequest) (*port.LoginResponse, 
 	}
 	return args.Get(0).(*port.LoginResponse), args.Error(1)
 }
-
-func (m *MockIAMClient) ValidateToken(token string) (*port.TokenValidationResponse, error) {
-	args := m.Called(token)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*port.TokenValidationResponse), args.Error(1)
-}

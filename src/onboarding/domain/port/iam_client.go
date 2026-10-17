@@ -21,7 +21,6 @@ type IAMClient interface {
 
 	// Auth operations
 	Login(request *LoginRequest) (*LoginResponse, error)
-	ValidateToken(token string) (*TokenValidationResponse, error)
 }
 
 // CreateTenantRequest representa una solicitud de creación de tenant
@@ -117,13 +116,4 @@ type LoginResponse struct {
 		TenantID string `json:"tenant_id"`
 		Role     string `json:"role"`
 	} `json:"user"`
-}
-
-// TokenValidationResponse representa la respuesta de validación de token
-type TokenValidationResponse struct {
-	Valid    bool   `json:"valid"`
-	UserID   string `json:"user_id,omitempty"`
-	TenantID string `json:"tenant_id,omitempty"`
-	Role     string `json:"role,omitempty"`
-	Email    string `json:"email,omitempty"`
 }
